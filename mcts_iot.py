@@ -1,0 +1,288 @@
+import math
+import random
+import statistics
+from collections import deque
+import plotly.express as px
+import numpy as np
+import pandas as pd
+from pyvis.network import Network
+
+
+class Edge:
+    def __init__(self, parent, child, task):
+        self.parent = parent
+        self.child = child
+        self.task = task
+
+
+class Node:
+    def __init__(self, battery, timeslot, parent=None):
+        self.battery = battery
+        self.timeslot = timeslot  # timeslot 1 meaning from 0 to 1
+        self.parents = [parent]
+        self.children = []
+        self.visits = 0
+        self.win_quality = 0
+        self.possible_tasks = self.get_possible_tasks()
+
+    def get_possible_tasks(self):
+        return [] if self.timeslot == K \
+            else list(filter(lambda t: self.battery + E[self.timeslot] - t["cost"] >= B_min, Tasks))
+
+    def is_fully_expanded(self):
+        return len(self.possible_tasks) == 0
+
+    def is_terminal(self):
+        return len(self.get_possible_tasks()) == 0 or self.timeslot == K
+
+    def expand(self):
+        next_task, new_battery = None, 0
+        new_child = False
+        # look for unexplored children
+        while len(self.possible_tasks) != 0:
+            next_task = self.possible_tasks.pop()
+            new_battery = min(B_max, self.battery + E[self.timeslot] - next_task["cost"])
+            if nodes[self.timeslot, new_battery - B_min] is not None:
+                # child already exists, add edge
+                self.children.append(Edge(self, nodes[self.timeslot, new_battery - B_min], next_task))
+            else:
+                # new child found
+                new_child = True
+                break
+
+        # node is fully explored, go back to selecting
+        if len(self.possible_tasks) == 0 and not new_child:
+            return None
+        # child doesn't yet exist, add it
+        edge = Edge(self, None, next_task)
+        edge.child = Node(new_battery, self.timeslot + 1, parent=edge)
+        nodes[self.timeslot, new_battery - B_min] = edge.child
+        self.children.append(edge)
+        return edge
+
+    def get_best_move(self, c=math.sqrt(2)):
+        return max(self.children, key=lambda edge: (edge.child.win_quality / edge.child.visits) + c *
+                                                   math.sqrt(math.log(self.visits) / edge.child.visits))
+
+    def simulate(self, qual):
+        sim_timeslot = self.timeslot
+        sim_state_battery = self.battery
+        sim_state_quality = qual
+        sim_path = []
+        while True:
+            if sim_timeslot == K:
+                return (sim_state_quality, sim_path, sim_state_quality) if sim_state_battery >= B_start else \
+                    (penalized_quality(sim_state_quality, sim_state_battery), [], 0)
+
+            available_tasks = list(filter(lambda t: sim_state_battery + E[sim_timeslot] -
+                                                    t["cost"] >= B_min, Tasks))
+            if not available_tasks:
+                return 0, [], 0
+            chosen_task = random.choice(available_tasks)
+            sim_timeslot += 1
+            sim_state_battery = min(B_max, sim_state_battery - chosen_task["cost"] + E[sim_timeslot - 1])
+            sim_state_quality += chosen_task["quality"]
+            sim_path.append(chosen_task)
+
+
+def backpropagate(result, path):
+    for node in path:
+        node.visits += 1
+        scaled_result = result
+        node.win_quality += scaled_result
+
+
+def mcts(start_node, iterations=500):
+    root = start_node
+
+    # save the best path explored by selection, expansion and simulation
+    best_path = []
+    best_quality = 0
+    for j in range(iterations):
+        node = root
+        result = None
+
+        # select until expand creates a new node
+        # also memorize chosen path for backpropagation
+        path = [node]
+        task_path = []
+        path_quality = 0
+
+        while result is None:
+            # select, create path
+            while not node.is_terminal() and node.is_fully_expanded():
+                best_move = node.get_best_move()
+                node = best_move.child
+                path.append(node)
+                task_path.append(best_move.task)
+                path_quality += best_move.task["quality"]
+            # expand
+            if not node.is_terminal():
+                result = node.expand()
+            else:
+                break
+
+        # if new node was created, add it to path
+        if result is not None:
+            node = result.child
+            path.append(node)
+            task_path.append(result.task)
+            path_quality += result.task["quality"]
+        # simulate
+        res, sim_path, sim_quality = node.simulate(path_quality)
+        if sim_quality > best_quality:
+            print(sim_path)
+            best_path = task_path + sim_path
+            best_quality = sim_quality
+        # backpropagate
+        backpropagate(res, path)
+
+    return root, best_path, best_quality
+
+
+def penalized_quality(quality, B_lvl):
+    return 0
+
+
+Tasks = [{'id': 1, 'cost': 3, 'quality': 5},
+         {'id': 2, 'cost': 2, 'quality': 3},
+         {'id': 3, 'cost': 4, 'quality': 6},
+         {'id': 4, 'cost': 8, 'quality': 10},
+         {'id': 5, 'cost': 1, 'quality': 1}]
+B_start = 20
+B_max = 30
+B_min = 10
+
+E = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
+K = 24
+
+
+nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
+
+'''
+def evaluate(iterations=100):
+    battery_values = []
+    quality_values = []
+    battery_underflow = 0
+    errors = 0
+    no_full_path = 0
+    for i in range(iterations):
+        global nodes
+        nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
+        curr_node = Node(B_start, 0)
+        error = False
+        try:
+            curr_node = mcts(curr_node)
+        except ValueError:
+            errors += 1
+            error = True
+        if not error:
+            while len(curr_node.children) != 0:
+                curr_node = curr_node.get_best_move().child
+            battery_values.append(curr_node.battery)
+            quality_values.append(curr_node.quality)
+            if battery_values[-1] < B_start:
+                battery_underflow += 1
+            if curr_node.timeslot < 24:
+                no_full_path += 1
+
+    print(statistics.fmean(battery_values), statistics.fmean(quality_values), battery_underflow, errors, no_full_path)
+
+
+evaluate(100)
+
+
+def eval_iterations():
+    x_axis = []
+    y_axis = []
+    for i in range(10, 1001, 10):
+        x_axis.append(i)
+        battery_values = []
+        quality_values = []
+        battery_underflow = 0
+        errors = 0
+        no_full_path = 0
+        for j in range(100):
+            global nodes
+            nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
+            curr_node = Node(B_start, 0)
+            error = False
+            try:
+                curr_node = mcts(curr_node, iterations=i)
+            except ValueError:
+                errors += 1
+                error = True
+            if not error:
+                while len(curr_node.children) != 0:
+                    curr_node = curr_node.get_best_move().child
+                battery_values.append(curr_node.battery)
+                if battery_values[-1] < B_start:
+                    battery_underflow += 1
+                if curr_node.timeslot < K:
+                    no_full_path += 1
+                    quality_values.append(0)
+                else:
+                    quality_values.append(curr_node.quality)
+        y_axis.append(no_full_path)
+    fig = px.scatter(x=x_axis, y=y_axis)
+    fig.show()
+'''
+
+def visualize_tree(root, max_nodes=1000):
+    net = Network(height='800px', width='100%', directed=True)
+    queue = deque([root])
+    visited = set()
+    count = 0
+
+    while queue and count < max_nodes:
+        current = queue.popleft()
+        node_id = str(id(current))
+        if node_id in visited:
+            continue
+        visited.add(node_id)
+        count += 1
+
+        # node label
+        label = f"T{current.timeslot}\nB{current.battery}"
+        net.add_node(node_id, label=label, title=label, color="#a6cee3")
+
+        for edge in current.children:
+            child = edge.child
+            if not child:
+                continue
+            child_id = str(id(child))
+            label_text = f"Task {edge.task['id']}\nQ={edge.task['quality']}"
+            color = "#1f78b4"
+
+            # add child node if not seen yet
+            if child_id not in visited:
+                net.add_node(
+                    child_id,
+                    label=f"T{child.timeslot}\nB{child.battery}",
+                    title=f"Battery={child.battery}, Timeslot={child.timeslot}",
+                    color="#b2df8a"
+                )
+                queue.append(child)
+
+            # Add edge with quality label
+            net.add_edge(node_id, child_id, label=label_text, color=color, title=f"Quality={edge.task['quality']}")
+    net.write_html("tree.html")
+
+
+
+curr_node = Node(B_start, 0)
+resu, bp, bq = mcts(curr_node, 500)
+quality = 0
+while len(curr_node.children) != 0:
+    move = curr_node.get_best_move()
+    print(curr_node.timeslot, curr_node.battery, quality, move.task)
+    quality += move.task["quality"]
+    curr_node = move.child
+
+
+print(curr_node.timeslot, curr_node.battery, quality)
+print(bp, bq, len(bp))
+'''
+eval_iterations()
+'''
+
