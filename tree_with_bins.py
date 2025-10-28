@@ -24,6 +24,8 @@ class Node:
 
 def generate_tree():
     root = Node(get_bin(B_start), 0, None)
+    global nodes, edges
+    nodes += 1
     last_timeslot = [root]
     for i in range(K):
         battery_bin_nodes = [None for i in range(len(bins))]
@@ -43,13 +45,16 @@ def generate_tree():
                             # check if edge already exits as to not add it again
                             if not any(e.task == t and e.child.battery_bin == new_bin for e in j.children):
                                 edge = Edge(t, j, battery_bin_nodes[new_bin])
+                                edges += 1
                                 battery_bin_nodes[new_bin].parents.append(edge)
                             else:
                                 continue
                         # node doesnt exit yet, create it and edge
                         else:
                             edge = Edge(t, j, None)
+                            edges += 1
                             battery_bin_nodes[new_bin] = Node(new_bin, j.timeslot + 1, edge)
+                            nodes += 1
                             edge.child = battery_bin_nodes[new_bin]
                         j.children.append(edge)
         last_timeslot = battery_bin_nodes
@@ -118,5 +123,9 @@ K = 24
 
 bins = [[10, 11, 12], [13, 14, 15], [16, 17, 18], [19, 20, 21], [22, 23, 24], [25, 26, 27], [28, 29, 30]]
 
+
+nodes, edges = 0, 0
 root = generate_tree()
-visualize_tree(root)
+#visualize_tree(root)
+
+print(nodes, edges)

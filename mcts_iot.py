@@ -71,13 +71,13 @@ class Node:
         sim_path = []
         while True:
             if sim_timeslot == K:
-                return (sim_state_quality, sim_path, sim_state_quality) if sim_state_battery >= B_start else \
-                    (penalized_quality(sim_state_quality, sim_state_battery), [], 0)
+                return (sim_state_quality, sim_path, sim_state_quality, sim_state_battery) if sim_state_battery >= B_start else \
+                    (penalized_quality(sim_state_quality, sim_state_battery), [], 0, 0)
 
             available_tasks = list(filter(lambda t: sim_state_battery + E[sim_timeslot] -
                                                     t["cost"] >= B_min, Tasks))
             if not available_tasks:
-                return 0, [], 0
+                return 0, [], 0, 0
             chosen_task = random.choice(available_tasks)
             sim_timeslot += 1
             sim_state_battery = min(B_max, sim_state_battery - chosen_task["cost"] + E[sim_timeslot - 1])
@@ -98,6 +98,7 @@ def mcts(start_node, iterations=500):
     # save the best path explored by selection, expansion and simulation
     best_path = []
     best_quality = 0
+    best_path_remaining_battery = 0
     for j in range(iterations):
         node = root
         result = None
@@ -129,15 +130,15 @@ def mcts(start_node, iterations=500):
             task_path.append(result.task)
             path_quality += result.task["quality"]
         # simulate
-        res, sim_path, sim_quality = node.simulate(path_quality)
+        res, sim_path, sim_quality, sim_battery = node.simulate(path_quality)
         if sim_quality > best_quality:
-            print(sim_path)
             best_path = task_path + sim_path
             best_quality = sim_quality
+            best_path_remaining_battery = sim_battery
         # backpropagate
         backpropagate(res, path)
 
-    return root, best_path, best_quality
+    return root, best_path, best_quality, best_path_remaining_battery
 
 
 def penalized_quality(quality, B_lvl):
@@ -171,16 +172,25 @@ def evaluate(iterations=100):
         nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
         curr_node = Node(B_start, 0)
         error = False
+        solution = None
         try:
-            curr_node = mcts(curr_node)
+            solution = mcts(curr_node)
         except ValueError:
             errors += 1
             error = True
+        curr_node = solution[0]
         if not error:
+            quality = 0
             while len(curr_node.children) != 0:
-                curr_node = curr_node.get_best_move().child
-            battery_values.append(curr_node.battery)
-            quality_values.append(curr_node.quality)
+                move = curr_node.get_best_move()
+                quality += move.task["quality"]
+                curr_node = move.child
+            if quality > solution[2]:
+                battery_values.append(curr_node.battery)
+                quality_values.append(quality)
+            else:
+                battery_values.append(solution[3])
+                quality_values.append(solution[2])
             if battery_values[-1] < B_start:
                 battery_underflow += 1
             if curr_node.timeslot < 24:
@@ -190,12 +200,12 @@ def evaluate(iterations=100):
 
 
 evaluate(100)
-
+'''
 
 def eval_iterations():
     x_axis = []
     y_axis = []
-    for i in range(10, 1001, 10):
+    for i in range(10, 501, 10):
         x_axis.append(i)
         battery_values = []
         quality_values = []
@@ -206,27 +216,16 @@ def eval_iterations():
             global nodes
             nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
             curr_node = Node(B_start, 0)
-            error = False
-            try:
-                curr_node = mcts(curr_node, iterations=i)
-            except ValueError:
-                errors += 1
-                error = True
-            if not error:
-                while len(curr_node.children) != 0:
-                    curr_node = curr_node.get_best_move().child
-                battery_values.append(curr_node.battery)
-                if battery_values[-1] < B_start:
-                    battery_underflow += 1
-                if curr_node.timeslot < K:
-                    no_full_path += 1
-                    quality_values.append(0)
-                else:
-                    quality_values.append(curr_node.quality)
-        y_axis.append(no_full_path)
+            solution = mcts(curr_node, iterations=i)
+            quality_values.append(solution[2])
+            battery_values.append(solution[3])
+            if battery_values[-1] < B_start:
+                battery_underflow += 1
+        y_axis.append(statistics.fmean(quality_values))
     fig = px.scatter(x=x_axis, y=y_axis)
     fig.show()
-'''
+
+
 
 def visualize_tree(root, max_nodes=1000):
     net = Network(height='800px', width='100%', directed=True)
@@ -268,8 +267,7 @@ def visualize_tree(root, max_nodes=1000):
             net.add_edge(node_id, child_id, label=label_text, color=color, title=f"Quality={edge.task['quality']}")
     net.write_html("tree.html")
 
-
-
+'''
 curr_node = Node(B_start, 0)
 resu, bp, bq = mcts(curr_node, 500)
 quality = 0
@@ -284,5 +282,5 @@ print(curr_node.timeslot, curr_node.battery, quality)
 print(bp, bq, len(bp))
 '''
 eval_iterations()
-'''
+
 

@@ -23,6 +23,8 @@ class Node:
 
 def generate_tree():
     root = Node(B_start, 0, None)
+    global nodes, edges
+    nodes += 1
     last_timeslot = [root]
     for i in range(len(E)):
         battery_level_nodes = [None for i in range(B_min, B_max + 1)]
@@ -34,10 +36,13 @@ def generate_tree():
                     edge = None
                     if battery_level_nodes[battery_level] is not None:
                         edge = Edge(t, j, battery_level_nodes[battery_level])
+                        edges += 1
                         battery_level_nodes[battery_level].parents.append(edge)
                     else:
                         edge = Edge(t, j, None)
+                        edges += 1
                         battery_level_nodes[battery_level] = Node(battery_level + B_min, j.timeslot + 1, edge)
+                        nodes += 1
                         edge.child = battery_level_nodes[battery_level]
                     j.children.append(edge)
         last_timeslot = battery_level_nodes
@@ -76,8 +81,6 @@ def find_best_path(root, visited=None):
     visited[id(root)] = (best_path, best_quality)
 
     return best_path, best_quality
-
-
 
 
 def check_solution(solution):
@@ -140,14 +143,17 @@ B_start = 20
 B_max = 30
 B_min = 10
 
-E = [1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 10]
+E = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
 E_2 = [1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0]
 
+
+nodes = 0
+edges = 0
 
 roots = generate_tree()
 #visualize_tree(roots)
 sol = find_best_path(roots)
 print(sol)
 print(check_solution(sol[0]))
-
+print(nodes, edges)
 
