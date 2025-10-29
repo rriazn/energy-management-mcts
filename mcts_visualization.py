@@ -170,7 +170,7 @@ def visualize_tree(root, highlight_nodes):
                 q.append(child)
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".html")
-    net.write_html(tmp.name)  # ✅ safer than net.show()
+    net.write_html(tmp.name)  
     return tmp.name
 
 
@@ -186,7 +186,7 @@ nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
 
 
 st.set_page_config(layout="wide")
-st.title("🧠 Live MCTS Tree Visualizer")
+st.title("Live MCTS Tree Visualizer")
 
 if "root" not in st.session_state:
     root = Node(B_start, 0)
@@ -200,6 +200,13 @@ with col1:
         st.session_state.last_path = path
         st.session_state.iter_count += 1
         st.success(f"Iteration {st.session_state.iter_count} completed! Path length {len(path)}.")
+    if st.button("Run 10 MCTS iterations"):
+        path, task_path = [], []
+        for i in range(10):
+            path, task_path = mcts_one_iteration(st.session_state.root)
+        st.session_state.last_path = path
+        st.session_state.iter_count += 10
+        st.success(f"{st.session_state.iter_count} iterations completed!")
 
 with col2:
     st.markdown("#### Tree Visualization")
