@@ -6,8 +6,7 @@
 #define B_MAX 30
 #define B_MIN 10
 
-typedef struct task
-{
+typedef struct task {
     int id;
     int cost;
     int quality;
@@ -87,4 +86,5 @@ int main(int argc, char **argv) {
         }
         printf("]\n");
     }
+    return 0;
 }
