@@ -44,7 +44,9 @@ class Node:
             new_battery = min(B_max, self.battery + E[self.timeslot] - next_task["cost"])
             if nodes[self.timeslot, new_battery - B_min] is not None:
                 # child already exists, add edge
-                self.children.append(Edge(self, nodes[self.timeslot, new_battery - B_min], next_task))
+                edge = Edge(self, nodes[self.timeslot, new_battery - B_min], next_task)
+                self.children.append(edge)
+                nodes[self.timeslot, new_battery - B_min].parents.append(edge)
             else:
                 # new child found
                 new_child = True
