@@ -207,14 +207,14 @@ static edge_t *get_best_move(node_t *node) {
     return max_edge;
 }
 
-static int simulate(node_t *node, int qual, int res[K]) {
+static int simulate(node_t *node, int qual, int res[K], int *sim_battery) {
     int sim_timeslot = node->timeslot;
     int sim_quality = qual;
-    int sim_state_battery = node->battery_level;
+    *sim_battery = node->battery_level;
     
     while(true) {
         if(K == sim_timeslot) {
-            if(sim_state_battery < B_MIN) {
+            if(*sim_battery < B_MIN) {
                 sim_quality = 0;
             }
             return sim_quality;
@@ -224,7 +224,7 @@ static int simulate(node_t *node, int qual, int res[K]) {
         int available_tasks[NUM_TASKS] = { 0 };
         int count = 0;
         for(int i = 0; i < NUM_TASKS; i++) {
-            if(sim_state_battery + E[sim_timeslot] - tasks[i].cost >= B_MIN) {
+            if(*sim_battery + E[sim_timeslot] - tasks[i].cost >= B_MIN) {
                 available_tasks[count] = i;
                 count++;
             }
@@ -238,9 +238,9 @@ static int simulate(node_t *node, int qual, int res[K]) {
 
         // update simulation
         sim_quality += tasks[chosen_task_idx].quality;
-        sim_state_battery = sim_state_battery + E[sim_timeslot] - tasks[chosen_task_idx].cost;
-        if(sim_state_battery > B_MAX) {
-            sim_state_battery = B_MAX;
+        *sim_battery = *sim_battery + E[sim_timeslot] - tasks[chosen_task_idx].cost;
+        if(*sim_battery > B_MAX) {
+            *sim_battery = B_MAX;
         }
         res[sim_timeslot] = tasks[chosen_task_idx].id;
         sim_timeslot += 1;
@@ -254,9 +254,8 @@ static void backpropagate(int result, node_t **path, int path_length) {
     }
 }
 
-static int mcts(node_t *root, int iterations, int best_path[K]) {
+static int mcts(node_t *root, int iterations, int best_path[K], int *best_solution_battery) {
     int best_quality = 0;
-
     for(int i = 0; i < iterations; i++) {
         node_t *node = root;
         edge_t *result = NULL;
@@ -296,9 +295,11 @@ static int mcts(node_t *root, int iterations, int best_path[K]) {
         }
         // simulate
         int res[K] = { 0 };
-        int sim_quality = simulate(node, path_quality, res);
-        if(sim_quality > best_quality) {
+        int sim_battery = 0;
+        int sim_quality = simulate(node, path_quality, res, &sim_battery);
+        if(sim_quality > best_quality && sim_battery >= 20) {
             best_quality = sim_quality;
+            *best_solution_battery = sim_battery;
             // concatenate paths to get full path
             for(int j = 0; j < K; j++) {
                 if(task_path[j] != 0) {
@@ -315,16 +316,22 @@ static int mcts(node_t *root, int iterations, int best_path[K]) {
 
 int main(int argc, char **argv) {
     srand(time(NULL));
+
+    
     int best_path[K] = { 0 };
     node_t *root = create_node(B_START, 0, NULL);
+
+    int best_solution_battery;
+    int ret = mcts(root, 500, best_path, &best_solution_battery);
     
-    
-    int ret = mcts(root, 500, best_path);
+  
     int q = 0;
     printf("%d\n", ret);
+    printf("%d\n", best_solution_battery);
     for(int i = 0; i < K; i++) {
         printf("%d\n", best_path[i]);
         q += tasks[best_path[i] - 1].quality;
     }
+        
     return 0;
 }
