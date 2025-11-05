@@ -31,7 +31,9 @@ static void die(const char *msg) {
 }
 
 
-static void solve(int schedule[K][B_MAX + 1], int opt[K][B_MAX + 1]) {
+static int solve(int[K] task_schedule) {
+    int schedule[K][B_MAX + 1] = { 0 };
+    int opt[K][B_MAX + 1] = { 0 };
     for(int i = K - 1; i >= 0; i--) {
         for(int B = 0; B <= B_MAX; B++) {
             int qmax = -100;
@@ -40,7 +42,7 @@ static void solve(int schedule[K][B_MAX + 1], int opt[K][B_MAX + 1]) {
                 if(i == K - 1) {
                     if(B - tasks[t].cost + E[i] >= B_START && tasks[t].quality > qmax) {
                         qmax = tasks[t].quality;
-                        idmax = tasks[t].id;
+                        idmax = t;
                     }
                 } else {
                     int Br = B - tasks[t].cost + E[i];
@@ -51,7 +53,7 @@ static void solve(int schedule[K][B_MAX + 1], int opt[K][B_MAX + 1]) {
                         int q = opt[i + 1][Br];
                         if(q != 0 && q + tasks[t].quality > qmax) {
                             qmax = q + tasks[t].quality;
-                            idmax = tasks[t].id;
+                            idmax = t;
                         }
                     }
                 }
@@ -60,31 +62,32 @@ static void solve(int schedule[K][B_MAX + 1], int opt[K][B_MAX + 1]) {
             schedule[i][B] = idmax;
         }
     }
+    int battery = B_START;
+    for(int i = 0; i < K; i++) {
+        task_schedule[i] = tasks[schedule[i][battery]].id;
+        battery = battery + E[i] - tasks[task_schedule[i]].cost;
+        if(B_MAX < battery) {
+            battery = B_MAX;
+        }
+    }
+    return opt[0][B_START];
+
 }
 
 
 
 int main(int argc, char **argv) {
-    int schedule[K][B_MAX + 1] = { 0 };
-    int opt[K][B_MAX + 1] = { 0 };
-    solve(schedule, opt);
+    int task_schedule[K] = { 0 };
+    int quality = solve(task_schedule);
 
     printf("Schedule: \n");
+    printf("[");
     for(int i = 0; i < K; i++) {
-        printf("[");
-        for(int j = 0; j <= B_MAX; j++) {
-            printf("%d ", schedule[i][j]);
-        }
-        printf("]\n");
+        printf("%d ", task_schedule[i]);
     }
+    printf("]\n");
 
-    printf("Quality: \n");
-    for(int i = 0; i < K; i++) {
-        printf("[");
-        for(int j = 0; j <= B_MAX; j++) {
-            printf("%d ", opt[i][j]);
-        }
-        printf("]\n");
-    }
+    printf("Quality: %d\n", quality);
+    
     return 0;
 }
