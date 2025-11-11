@@ -11,6 +11,8 @@
 #define B_MIN 10
 #define C sqrt(2)
 
+#define ITERATIONS 150
+
 
 
 
@@ -41,76 +43,54 @@ typedef struct edge {
 typedef struct node {
     int battery_level;
     int timeslot;
-    struct edge_list *parents;
-    struct edge_list *children;
+    edge_t *parents[NUM_TASKS];
+    int parent_count;
+    edge_t *children[NUM_TASKS];
+    int children_count;
     int visits;
     int win_quality;
     bool possible_tasks[NUM_TASKS];
 } node_t;
 
-typedef struct edge_list {
-    edge_t **list;
-    int size;
-} edge_list_t;
-
 static node_t *nodes[K][B_MAX - B_MIN + 1] = { NULL };
+
+static node_t node_getter[ITERATIONS] = { 0 };
+static int node_number = 0;
+
+static edge_t edge_getter[ITERATIONS * NUM_TASKS] = { 0 };
+static int edge_number = 0;
 
 static void die(char *msg) {
     perror(msg);
     exit(EXIT_FAILURE);
 }
 
-static void append_edge(edge_list_t **list, edge_t *element) {
-    if(*list == NULL) {
-        *list = (edge_list_t *) malloc(sizeof(edge_list_t));
-        if(NULL == *list) {
-            die("malloc");
-        }
-        (*list)->list = (edge_t **) malloc(sizeof(edge_t *));
-        if(NULL == (*list)->list) {
-            die("malloc");
-        }
-        (*list)->list[0] = element;
-        (*list)->size = 1;
-    } else {
-        edge_t **new_list = (edge_t **) realloc((*list)->list, ((*list)->size + 1) * sizeof(edge_t *));
-        if(NULL == new_list) {
-            die("realloc");
-        }
-        (*list)->list = new_list;
-        (*list)->list[(*list)->size] = element;
-        (*list)->size++;
-    }
+static void append_edge(edge_t *list[NUM_TASKS], int edge_count, edge_t *element) {
+    list[edge_count] = element;
 }
 
 static void get_possible_tasks(node_t *node, bool possible_tasks[NUM_TASKS]);
 
 static node_t *create_node(int battery_level, int timeslot, edge_t *parent) {
-    node_t *node = (node_t *) malloc(sizeof(node_t));
-    if(NULL == node) {
-        die("malloc");
-    }
+    node_t *node = &node_getter[node_number];
+    node_number++;
     node->battery_level = battery_level;
     node->timeslot = timeslot;
     node->visits = 0;
     node->win_quality = 0;
-    node->children = NULL;
-    node->parents = NULL;
-    bool pos_tasks[NUM_TASKS];
-    memset(pos_tasks, false, sizeof(pos_tasks)); 
+    bool pos_tasks[NUM_TASKS] = { false };
     get_possible_tasks(node, pos_tasks);
     memcpy(node->possible_tasks, pos_tasks, sizeof(pos_tasks));
     if(NULL != parent) {
-        append_edge(&node->parents, parent);
+        append_edge(node->parents, node->parent_count, parent);
+        node->parent_count++;
     }
     return node;
 }
 
 static edge_t *create_edge(int task, node_t *parent, node_t *child) {
-    edge_t *edge = (edge_t *) malloc(sizeof(edge_t));
-    if(NULL == edge) {
-        die("malloc");
-    }
+    edge_t *edge = &edge_getter[edge_number];
+    edge_number++;
     edge->task_idx = task;
     edge->parent = parent;
     edge->child = child;
@@ -143,8 +123,7 @@ static bool is_terminal(node_t *node) {
     if(node->timeslot == K) {
         return true;
     }
-    bool pos_tasks[NUM_TASKS];
-    memset(pos_tasks, false, sizeof(pos_tasks)); 
+    bool pos_tasks[NUM_TASKS] = { 0 }; 
     get_possible_tasks(node, pos_tasks);
     for(int i = 0; i < NUM_TASKS; i++) {
         if(pos_tasks[i]) {
@@ -174,8 +153,10 @@ static edge_t *expand(node_t *node) {
         }
         if(NULL != nodes[node->timeslot][new_battery - B_MIN]) {
             edge_t *edge = create_edge(next_task_idx, node, nodes[node->timeslot][new_battery - B_MIN]);
-            append_edge(&(node->children), edge);
-            append_edge(&(nodes[node->timeslot][new_battery - B_MIN]->parents), edge);
+            append_edge(node->children, node->children_count, edge);
+            node->children_count++;
+            append_edge(nodes[node->timeslot][new_battery - B_MIN]->parents, nodes[node->timeslot][new_battery - B_MIN]->parent_count, edge);
+            nodes[node->timeslot][new_battery - B_MIN]->parent_count++;
         } else {
             new_child = true;
             break;
@@ -189,19 +170,20 @@ static edge_t *expand(node_t *node) {
     edge_t *edge = create_edge(next_task_idx, node, NULL);
     edge->child = create_node(new_battery, node->timeslot + 1, edge);
     nodes[node->timeslot][new_battery - B_MIN] = edge->child;
-    append_edge(&(node->children), edge);
+    append_edge(node->children, node->children_count, edge);
+    node->children_count++;
     return edge;
 }
 
 static edge_t *get_best_move(node_t *node) {
     float max_val = -1;
     edge_t *max_edge = NULL;
-    for(int i = 0; i < node->children->size; i++) {
-        node_t *child = node->children->list[i]->child;
+    for(int i = 0; i < node->children_count; i++) {
+        node_t *child = node->children[i]->child;
         float val = ((float) child->win_quality / child->visits) + C * sqrt(log(node->visits) / child->visits);
         if(val > max_val) {
             max_val = val;
-            max_edge = node->children->list[i];
+            max_edge = node->children[i];
         }
     }
     return max_edge;
@@ -322,9 +304,9 @@ int main(int argc, char **argv) {
     node_t *root = create_node(B_START, 0, NULL);
 
     int best_solution_battery;
-    int ret = mcts(root, 500, best_path, &best_solution_battery);
+    int ret = mcts(root, ITERATIONS, best_path, &best_solution_battery);
     
-  
+
     int q = 0;
     printf("%d\n", ret);
     printf("%d\n", best_solution_battery);
@@ -332,6 +314,9 @@ int main(int argc, char **argv) {
         printf("%d\n", best_path[i]);
         q += tasks[best_path[i] - 1].quality;
     }
+    
+    
+    
         
     return 0;
 }

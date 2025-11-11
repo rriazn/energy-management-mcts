@@ -144,7 +144,11 @@ def mcts(start_node, iterations=500):
 
 
 def penalized_quality(quality, B_lvl):
-    return 0
+    k = 1.5
+    diff = max(0, B_start - B_lvl)  # only penalize if below start
+    scale = diff / B_min
+    penalty = quality * (1 - math.exp(-k * scale))
+    return quality - penalty
 
 
 Tasks = [{'id': 1, 'cost': 3, 'quality': 5},
@@ -163,6 +167,7 @@ K = 24
 nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
 
 '''
+'''
 def evaluate(iterations=100):
     battery_values = []
     quality_values = []
@@ -176,7 +181,7 @@ def evaluate(iterations=100):
         error = False
         solution = None
         try:
-            solution = mcts(curr_node)
+            solution = mcts(curr_node, 200)
         except ValueError:
             errors += 1
             error = True
@@ -187,22 +192,18 @@ def evaluate(iterations=100):
                 move = curr_node.get_best_move()
                 quality += move.task["quality"]
                 curr_node = move.child
-            if quality > solution[2]:
-                battery_values.append(curr_node.battery)
-                quality_values.append(quality)
-            else:
-                battery_values.append(solution[3])
-                quality_values.append(solution[2])
+            battery_values.append(solution[3])
+            quality_values.append(solution[2])
             if battery_values[-1] < B_start:
                 battery_underflow += 1
             if curr_node.timeslot < 24:
                 no_full_path += 1
 
-    print(statistics.fmean(battery_values), statistics.fmean(quality_values), battery_underflow, errors, no_full_path)
+    print(statistics.fmean(battery_values), statistics.fmean(quality_values), statistics.stdev(quality_values))
 
 
-evaluate(100)
-'''
+evaluate(1000)
+
 
 def eval_iterations():
     x_axis = []
@@ -271,7 +272,7 @@ def visualize_tree(root, max_nodes=1000):
 
 '''
 curr_node = Node(B_start, 0)
-resu, bp, bq = mcts(curr_node, 500)
+resu, bp, bq, bpb = mcts(curr_node, 500)
 quality = 0
 while len(curr_node.children) != 0:
     move = curr_node.get_best_move()
@@ -281,8 +282,8 @@ while len(curr_node.children) != 0:
 
 
 print(curr_node.timeslot, curr_node.battery, quality)
-print(bp, bq, len(bp))
-'''
-eval_iterations()
+print(bp, bq, bpb, len(bp))
 
+eval_iterations()
+'''
 
