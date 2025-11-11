@@ -31,7 +31,9 @@ static void die(const char *msg) {
 }
 
 
-static void solve(int schedule[K][B_MAX + 1], int opt[K][B_MAX + 1]) {
+static int solve(int task_schedule[K]) {
+    int opt[K][B_MAX + 1] = { 0 };
+    int schedule[K][B_MAX + 1] = { 0 };
     for(int i = K - 1; i >= 0; i--) {
         for(int B = 0; B <= B_MAX; B++) {
             int qmax = -100;
