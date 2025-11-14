@@ -13,6 +13,8 @@ class Edge:
         self.parent = parent
         self.child = child
         self.task = task
+        self.visits = 0
+        self.win_quality = 0
 
 
 class Node:
@@ -21,8 +23,6 @@ class Node:
         self.timeslot = timeslot  # timeslot 1 meaning from 0 to 1
         self.parents = [parent]
         self.children = []
-        self.visits = 0
-        self.win_quality = 0
         self.possible_tasks = self.get_possible_tasks()
 
     def get_possible_tasks(self):
@@ -35,36 +35,34 @@ class Node:
     def is_terminal(self):
         return len(self.get_possible_tasks()) == 0 or self.timeslot == K
 
+    # returns: created edge and information if a new node was created => selection can be stopped
     def expand(self):
-        next_task, new_battery = None, 0
-        new_child = False
         # look for unexplored children
-        while len(self.possible_tasks) != 0:
-            next_task = self.possible_tasks.pop()
-            new_battery = min(B_max, self.battery + E[self.timeslot] - next_task["cost"])
-            if nodes[self.timeslot, new_battery - B_min] is not None:
-                # child already exists, add edge
-                edge = Edge(self, nodes[self.timeslot, new_battery - B_min], next_task)
-                self.children.append(edge)
-                nodes[self.timeslot, new_battery - B_min].parents.append(edge)
-            else:
-                # new child found
-                new_child = True
-                break
+        next_task = self.possible_tasks.pop()
+        new_battery = min(B_max, self.battery + E[self.timeslot] - next_task["cost"])
+        if nodes[self.timeslot, new_battery - B_min] is not None:
+            # child already exists, add edge
+            edge = Edge(self, nodes[self.timeslot, new_battery - B_min], next_task)
+            self.children.append(edge)
+            nodes[self.timeslot, new_battery - B_min].parents.append(edge)
+            return edge, False
+        else:
+            # child doesn't yet exist, add it
+            edge = Edge(self, None, next_task)
+            edge.child = Node(new_battery, self.timeslot + 1, parent=edge)
+            nodes[self.timeslot, new_battery - B_min] = edge.child
+            self.children.append(edge)
+            return edge, True
 
-        # node is fully explored, go back to selecting
-        if len(self.possible_tasks) == 0 and not new_child:
-            return None
-        # child doesn't yet exist, add it
-        edge = Edge(self, None, next_task)
-        edge.child = Node(new_battery, self.timeslot + 1, parent=edge)
-        nodes[self.timeslot, new_battery - B_min] = edge.child
-        self.children.append(edge)
-        return edge
+    def get_best_move(self, parent_edge_visits, c=math.sqrt(2)):
+        try:
+            return max(self.children, key=lambda edge: (edge.win_quality / edge.visits) + c *
+                                                   math.sqrt(math.log(parent_edge_visits) / edge.visits))
+        except ZeroDivisionError:
+            print(len(list(filter(lambda e: e.visits == 0, self.children))))
+            print(self.timeslot)
+            exit(1)
 
-    def get_best_move(self, c=math.sqrt(2)):
-        return max(self.children, key=lambda edge: (edge.child.win_quality / edge.child.visits) + c *
-                                                   math.sqrt(math.log(self.visits) / edge.child.visits))
 
     def simulate(self, qual):
         sim_timeslot = self.timeslot
@@ -88,10 +86,10 @@ class Node:
 
 
 def backpropagate(result, path):
-    for node in path:
-        node.visits += 1
+    for edge in path:
+        edge.visits += 1
         scaled_result = result
-        node.win_quality += scaled_result
+        edge.win_quality += scaled_result
 
 
 def mcts(start_node, iterations=500):
@@ -104,33 +102,34 @@ def mcts(start_node, iterations=500):
     for j in range(iterations):
         node = root
         result = None
-
         # select until expand creates a new node
         # also memorize chosen path for backpropagation
-        path = [node]
+        path = []
         task_path = []
         path_quality = 0
-
-        while result is None:
+        new_node = False
+        parent_edge_visits = j
+        while not new_node:
             # select, create path
             while not node.is_terminal() and node.is_fully_expanded():
-                best_move = node.get_best_move()
+                best_move = node.get_best_move(parent_edge_visits)
                 node = best_move.child
-                path.append(node)
+                parent_edge_visits = best_move.visits
+                path.append(best_move)
                 task_path.append(best_move.task)
                 path_quality += best_move.task["quality"]
             # expand
             if not node.is_terminal():
-                result = node.expand()
+                result, new_node = node.expand()
+                node = result.child
+                path.append(result)
+                task_path.append(result.task)
+                path_quality += result.task["quality"]
             else:
                 break
 
-        # if new node was created, add it to path
-        if result is not None:
-            node = result.child
-            path.append(node)
-            task_path.append(result.task)
-            path_quality += result.task["quality"]
+
+
         # simulate
         res, sim_path, sim_quality, sim_battery = node.simulate(path_quality)
         if sim_quality > best_quality:
@@ -167,7 +166,7 @@ K = 24
 nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
 
 '''
-'''
+
 def evaluate(iterations=100):
     battery_values = []
     quality_values = []
@@ -203,7 +202,7 @@ def evaluate(iterations=100):
 
 
 evaluate(1000)
-
+'''
 
 def eval_iterations():
     x_axis = []
@@ -270,20 +269,22 @@ def visualize_tree(root, max_nodes=1000):
             net.add_edge(node_id, child_id, label=label_text, color=color, title=f"Quality={edge.task['quality']}")
     net.write_html("tree.html")
 
-'''
+
 curr_node = Node(B_start, 0)
-resu, bp, bq, bpb = mcts(curr_node, 500)
+resu, bp, bq, bpb = mcts(curr_node, 150)
 quality = 0
+par_edge_visits = 150
 while len(curr_node.children) != 0:
-    move = curr_node.get_best_move()
+    move = curr_node.get_best_move(par_edge_visits)
     print(curr_node.timeslot, curr_node.battery, quality, move.task)
+    par_edge_visits = move.visits
     quality += move.task["quality"]
     curr_node = move.child
 
 
 print(curr_node.timeslot, curr_node.battery, quality)
 print(bp, bq, bpb, len(bp))
-
+'''
 eval_iterations()
 '''
 
