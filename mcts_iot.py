@@ -55,13 +55,12 @@ class Node:
             return edge, True
 
     def get_best_move(self, parent_edge_visits, c=math.sqrt(2)):
-        try:
-            return max(self.children, key=lambda edge: (edge.win_quality / edge.visits) + c *
-                                                   math.sqrt(math.log(parent_edge_visits) / edge.visits))
-        except ZeroDivisionError:
-            print(len(list(filter(lambda e: e.visits == 0, self.children))))
-            print(self.timeslot)
-            exit(1)
+
+        return max(self.children, key=lambda edge: (edge.win_quality / edge.visits) + c *
+                                                  math.sqrt(math.log(parent_edge_visits) / edge.visits))
+        #return max(self.children, key=lambda edge: (edge.win_quality / edge.visits) + c *
+        #                                           parent_edge_visits / (1 + edge.visits))
+
 
 
     def simulate(self, qual):
@@ -101,7 +100,6 @@ def mcts(start_node, iterations=500):
     best_path_remaining_battery = 0
     for j in range(iterations):
         node = root
-        result = None
         # select until expand creates a new node
         # also memorize chosen path for backpropagation
         path = []
@@ -127,9 +125,6 @@ def mcts(start_node, iterations=500):
                 path_quality += result.task["quality"]
             else:
                 break
-
-
-
         # simulate
         res, sim_path, sim_quality, sim_battery = node.simulate(path_quality)
         if sim_quality > best_quality:
@@ -143,7 +138,7 @@ def mcts(start_node, iterations=500):
 
 
 def penalized_quality(quality, B_lvl):
-    k = 1.5
+    k = 1
     diff = max(0, B_start - B_lvl)  # only penalize if below start
     scale = diff / B_min
     penalty = quality * (1 - math.exp(-k * scale))
@@ -165,7 +160,7 @@ K = 24
 
 nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
 
-'''
+
 
 def evaluate(iterations=100):
     battery_values = []
@@ -187,8 +182,10 @@ def evaluate(iterations=100):
         curr_node = solution[0]
         if not error:
             quality = 0
+            parent_visit = 200
             while len(curr_node.children) != 0:
-                move = curr_node.get_best_move()
+                move = curr_node.get_best_move(parent_visit)
+                parent_visit = move.visits
                 quality += move.task["quality"]
                 curr_node = move.child
             battery_values.append(solution[3])
@@ -201,7 +198,8 @@ def evaluate(iterations=100):
     print(statistics.fmean(battery_values), statistics.fmean(quality_values), statistics.stdev(quality_values))
 
 
-evaluate(1000)
+#evaluate(10000)
+'''
 '''
 
 def eval_iterations():
@@ -269,7 +267,7 @@ def visualize_tree(root, max_nodes=1000):
             net.add_edge(node_id, child_id, label=label_text, color=color, title=f"Quality={edge.task['quality']}")
     net.write_html("tree.html")
 
-
+'''
 curr_node = Node(B_start, 0)
 resu, bp, bq, bpb = mcts(curr_node, 150)
 quality = 0
@@ -286,5 +284,5 @@ print(curr_node.timeslot, curr_node.battery, quality)
 print(bp, bq, bpb, len(bp))
 '''
 eval_iterations()
-'''
+
 
