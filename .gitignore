@@ -6,3 +6,5 @@ venv/
 lib/
 .vscode/
 *.exe
+*.html
+exes/

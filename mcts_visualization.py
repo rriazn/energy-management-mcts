@@ -139,7 +139,7 @@ def penalized_quality(quality, B_lvl):
 
 
 def visualize_tree(root, highlight_nodes):
-    net = Network(height="600px", width="100%", bgcolor="#111", font_color="white", directed=True)
+    net = Network(height="600px", width="100%", bgcolor="white", font_color="black", directed=True)
     q = [root]
     visited = set()
 
@@ -148,7 +148,7 @@ def visualize_tree(root, highlight_nodes):
         nid = f"{node.timeslot}_{node.battery}"
         if nid not in visited:
             visited.add(nid)
-            color = "orange" if node in highlight_nodes else "skyblue"
+            color = "red" if node in highlight_nodes else "blue"
             net.add_node(
                 nid,
                 label=f"T{node.timeslot},B{node.battery},V{node.visits}",
@@ -159,7 +159,7 @@ def visualize_tree(root, highlight_nodes):
                 child = e.child
                 cid = f"{child.timeslot}_{child.battery}"
                 if cid not in net.get_nodes():
-                    ccolor = "orange" if child in highlight_nodes else "lightgreen"
+                    ccolor = "red" if child in highlight_nodes else "blue"
                     net.add_node(
                         cid,
                         label=f"T{child.timeslot},B{child.battery},V{child.visits}",
@@ -170,7 +170,8 @@ def visualize_tree(root, highlight_nodes):
                 q.append(child)
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".html")
-    net.write_html(tmp.name)  
+    net.write_html(tmp.name)
+
     return tmp.name
 
 
@@ -183,7 +184,6 @@ B_start, B_max, B_min = 20, 30, 10
 E = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
 K = 5
 nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
-
 
 st.set_page_config(layout="wide")
 st.title("Live MCTS Tree Visualizer")

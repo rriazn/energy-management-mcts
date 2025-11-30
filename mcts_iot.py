@@ -4,17 +4,15 @@ import statistics
 from collections import deque
 import plotly.express as px
 import numpy as np
-import pandas as pd
+import timeit
 from pyvis.network import Network
 
-
+K = 24
 class Edge:
     def __init__(self, parent, child, task):
         self.parent = parent
         self.child = child
         self.task = task
-        self.visits = 0
-        self.win_quality = 0
 
 
 class Node:
@@ -23,6 +21,8 @@ class Node:
         self.timeslot = timeslot  # timeslot 1 meaning from 0 to 1
         self.parents = [parent]
         self.children = []
+        self.visits = 0
+        self.win_quality = 0
         self.possible_tasks = self.get_possible_tasks()
 
     def get_possible_tasks(self):
@@ -35,33 +35,39 @@ class Node:
     def is_terminal(self):
         return len(self.get_possible_tasks()) == 0 or self.timeslot == K
 
-    # returns: created edge and information if a new node was created => selection can be stopped
     def expand(self):
+        next_task, new_battery = None, 0
+        new_child = False
         # look for unexplored children
-        next_task = self.possible_tasks.pop()
-        new_battery = min(B_max, self.battery + E[self.timeslot] - next_task["cost"])
-        if nodes[self.timeslot, new_battery - B_min] is not None:
-            # child already exists, add edge
-            edge = Edge(self, nodes[self.timeslot, new_battery - B_min], next_task)
-            self.children.append(edge)
-            nodes[self.timeslot, new_battery - B_min].parents.append(edge)
-            return edge, False
-        else:
-            # child doesn't yet exist, add it
-            edge = Edge(self, None, next_task)
-            edge.child = Node(new_battery, self.timeslot + 1, parent=edge)
-            nodes[self.timeslot, new_battery - B_min] = edge.child
-            self.children.append(edge)
-            return edge, True
-
-    def get_best_move(self, parent_edge_visits, c=math.sqrt(2)):
-
-        return max(self.children, key=lambda edge: (edge.win_quality / edge.visits) + c *
-                                                  math.sqrt(math.log(parent_edge_visits) / edge.visits))
-        #return max(self.children, key=lambda edge: (edge.win_quality / edge.visits) + c *
-        #                                           parent_edge_visits / (1 + edge.visits))
+        while len(self.possible_tasks) != 0:
+            next_task = self.possible_tasks.pop()
+            new_battery = min(B_max, self.battery + E[self.timeslot] - next_task["cost"])
+            if nodes[self.timeslot, new_battery - B_min] is not None:
+                # child already exists, add edge
+                edge = Edge(self, nodes[self.timeslot, new_battery - B_min], next_task)
+                self.children.append(edge)
+                nodes[self.timeslot, new_battery - B_min].parents.append(edge)
+            else:
+                # new child found
+                new_child = True
+                break
 
 
+        # node is fully explored, go back to selecting
+        if len(self.possible_tasks) == 0 and not new_child:
+            return None
+        # child doesn't yet exist, add it
+        edge = Edge(self, None, next_task)
+        edge.child = Node(new_battery, self.timeslot + 1, parent=edge)
+        nodes[self.timeslot, new_battery - B_min] = edge.child
+        self.children.append(edge)
+        return edge
+
+    def get_best_move(self, c=math.sqrt(2)):
+        return max(self.children, key=lambda edge: (edge.child.win_quality / edge.child.visits))
+                                                   #+ c * math.sqrt(math.log(self.visits) / edge.child.visits))
+        #return max(self.children, key=lambda edge: (edge.child.win_quality / edge.child.visits) + c *
+        #                                           self.visits / (1 + edge.child.visits))
 
     def simulate(self, qual):
         sim_timeslot = self.timeslot
@@ -71,10 +77,13 @@ class Node:
         while True:
             if sim_timeslot == K:
                 return (sim_state_quality, sim_path, sim_state_quality, sim_state_battery) if sim_state_battery >= B_start else \
-                    (penalized_quality(sim_state_quality, sim_state_battery), [], 0, 0)
-
-            available_tasks = list(filter(lambda t: sim_state_battery + E[sim_timeslot] -
+                    (penalized_quality(sim_state_quality, sim_state_battery), sim_path, sim_state_quality, sim_state_battery)
+            try:
+                available_tasks = list(filter(lambda t: sim_state_battery + E[sim_timeslot] -
                                                     t["cost"] >= B_min, Tasks))
+            except IndexError:
+                print(sim_timeslot, len(E))
+                exit(1)
             if not available_tasks:
                 return 0, [], 0, 0
             chosen_task = random.choice(available_tasks)
@@ -85,10 +94,10 @@ class Node:
 
 
 def backpropagate(result, path):
-    for edge in path:
-        edge.visits += 1
+    for node in path:
+        node.visits += 1
         scaled_result = result
-        edge.win_quality += scaled_result
+        node.win_quality += scaled_result
 
 
 def mcts(start_node, iterations=500):
@@ -100,34 +109,37 @@ def mcts(start_node, iterations=500):
     best_path_remaining_battery = 0
     for j in range(iterations):
         node = root
+        result = None
+
         # select until expand creates a new node
         # also memorize chosen path for backpropagation
-        path = []
+        path = [node]
         task_path = []
         path_quality = 0
-        new_node = False
-        parent_edge_visits = j
-        while not new_node:
+
+        while result is None:
             # select, create path
             while not node.is_terminal() and node.is_fully_expanded():
-                best_move = node.get_best_move(parent_edge_visits)
+                best_move = node.get_best_move()
                 node = best_move.child
-                parent_edge_visits = best_move.visits
-                path.append(best_move)
+                path.append(node)
                 task_path.append(best_move.task)
                 path_quality += best_move.task["quality"]
             # expand
             if not node.is_terminal():
-                result, new_node = node.expand()
-                node = result.child
-                path.append(result)
-                task_path.append(result.task)
-                path_quality += result.task["quality"]
+                result = node.expand()
             else:
                 break
+
+        # if new node was created, add it to path
+        if result is not None:
+            node = result.child
+            path.append(node)
+            task_path.append(result.task)
+            path_quality += result.task["quality"]
         # simulate
         res, sim_path, sim_quality, sim_battery = node.simulate(path_quality)
-        if sim_quality > best_quality:
+        if res > best_quality and sim_battery >= B_start:
             best_path = task_path + sim_path
             best_quality = sim_quality
             best_path_remaining_battery = sim_battery
@@ -138,30 +150,300 @@ def mcts(start_node, iterations=500):
 
 
 def penalized_quality(quality, B_lvl):
+    if B_lvl >= B_start:
+        return quality
     k = 1
-    diff = max(0, B_start - B_lvl)  # only penalize if below start
+    diff = max(0, B_start - B_lvl)
     scale = diff / B_min
     penalty = quality * (1 - math.exp(-k * scale))
     return quality - penalty
 
 
-Tasks = [{'id': 1, 'cost': 3, 'quality': 5},
-         {'id': 2, 'cost': 2, 'quality': 3},
-         {'id': 3, 'cost': 4, 'quality': 6},
-         {'id': 4, 'cost': 8, 'quality': 10},
-         {'id': 5, 'cost': 1, 'quality': 1}]
+Tasks = []
+
+
+Task_sets = [
+    [{'id': 1, 'cost': 2, 'quality': 3},
+     {'id': 2, 'cost': 1, 'quality': 2},
+     {'id': 3, 'cost': 4, 'quality': 5},
+     {'id': 4, 'cost': 3, 'quality': 4}],
+
+    [{'id': 1, 'cost': 3, 'quality': 5},
+     {'id': 2, 'cost': 2, 'quality': 3},
+     {'id': 3, 'cost': 4, 'quality': 6},
+     {'id': 4, 'cost': 8, 'quality': 10},
+     {'id': 5, 'cost': 1, 'quality': 1}],
+
+    [{'id': 1, 'cost': 4, 'quality': 6},
+     {'id': 2, 'cost': 3, 'quality': 4},
+     {'id': 3, 'cost': 5, 'quality': 7},
+     {'id': 4, 'cost': 10, 'quality': 12},
+     {'id': 5, 'cost': 2, 'quality': 2},
+     {'id': 6, 'cost': 1, 'quality': 1}],
+
+    [{'id': 1, 'cost': 4, 'quality': 5},
+     {'id': 2, 'cost': 5, 'quality': 6},
+     {'id': 3, 'cost': 6, 'quality': 9},
+     {'id': 4, 'cost': 11, 'quality': 14},
+     {'id': 5, 'cost': 1, 'quality': 1},
+     {'id': 6, 'cost': 3, 'quality': 3},
+     {'id': 7, 'cost': 8, 'quality': 12}],
+
+    [{'id': 1, 'cost': 4, 'quality': 5},
+     {'id': 2, 'cost': 5, 'quality': 6},
+     {'id': 3, 'cost': 6, 'quality': 9},
+     {'id': 4, 'cost': 11, 'quality': 15},
+     {'id': 5, 'cost': 2, 'quality': 2},
+     {'id': 8, 'cost': 7, 'quality': 10},
+     {'id': 6, 'cost': 3, 'quality': 3},
+     {'id': 7, 'cost': 1, 'quality': 1}],
+
+    [{'id': 1, 'cost': 5, 'quality': 6},
+    {'id': 2, 'cost': 6, 'quality': 7},
+    {'id': 3, 'cost': 7, 'quality': 10},
+    {'id': 4, 'cost': 13, 'quality': 17},
+    {'id': 5, 'cost': 3, 'quality': 3},
+    {'id': 6, 'cost': 4, 'quality': 4},
+    {'id': 7, 'cost': 10, 'quality': 14},
+    {'id': 8, 'cost': 1, 'quality': 1},
+    {'id': 9, 'cost': 12, 'quality': 18},
+    ],
+    [
+    {'id': 1, 'cost': 6, 'quality': 7},
+    {'id': 2, 'cost': 7, 'quality': 8},
+    {'id': 3, 'cost': 8, 'quality': 11},
+    {'id': 4, 'cost': 15, 'quality': 19},
+    {'id': 5, 'cost': 3, 'quality': 3},
+    {'id': 6, 'cost': 4, 'quality': 4},
+    {'id': 7, 'cost': 11, 'quality': 15},
+    {'id': 8, 'cost': 9, 'quality': 12},
+    {'id': 9, 'cost': 13, 'quality': 19},
+    {'id': 10, 'cost': 1, 'quality': 1},
+    ],
+    [
+    {'id': 1, 'cost': 7, 'quality': 8},
+    {'id': 2, 'cost': 8, 'quality': 9},
+    {'id': 3, 'cost': 9, 'quality': 12},
+    {'id': 4, 'cost': 17, 'quality': 21},
+    {'id': 5, 'cost': 4, 'quality': 4},
+    {'id': 6, 'cost': 5, 'quality': 5},
+    {'id': 7, 'cost': 12, 'quality': 17},
+    {'id': 8, 'cost': 10, 'quality': 13},
+    {'id': 9, 'cost': 14, 'quality': 21},
+    {'id': 10, 'cost': 6, 'quality': 7},
+    {'id': 11, 'cost': 1, 'quality': 1},
+    ],
+[
+    {'id': 1, 'cost': 8, 'quality': 9},
+    {'id': 2, 'cost': 9, 'quality': 10},
+    {'id': 3, 'cost': 10, 'quality': 13},
+    {'id': 4, 'cost': 19, 'quality': 23},
+    {'id': 5, 'cost': 5, 'quality': 5},
+    {'id': 6, 'cost': 6, 'quality': 7},
+    {'id': 7, 'cost': 13, 'quality': 18},
+    {'id': 8, 'cost': 11, 'quality': 14},
+    {'id': 9, 'cost': 15, 'quality': 22},
+    {'id': 10, 'cost': 7, 'quality': 8},
+    {'id': 11, 'cost': 2, 'quality': 2},
+    {'id': 12, 'cost': 3, 'quality': 3},
+],
+[
+    {'id': 1, 'cost': 9, 'quality': 10},
+    {'id': 2, 'cost': 10, 'quality': 12},
+    {'id': 3, 'cost': 12, 'quality': 15},
+    {'id': 4, 'cost': 21, 'quality': 26},
+    {'id': 5, 'cost': 6, 'quality': 6},
+    {'id': 6, 'cost': 7, 'quality': 8},
+    {'id': 7, 'cost': 15, 'quality': 20},
+    {'id': 8, 'cost': 13, 'quality': 16},
+    {'id': 9, 'cost': 17, 'quality': 24},
+    {'id': 10, 'cost': 8, 'quality': 9},
+    {'id': 11, 'cost': 3, 'quality': 3},
+    {'id': 12, 'cost': 4, 'quality': 4},
+    {'id': 13, 'cost': 1, 'quality': 1},
+],
+[
+    {'id': 1, 'cost': 10, 'quality': 11},
+    {'id': 2, 'cost': 12, 'quality': 13},
+    {'id': 3, 'cost': 13, 'quality': 17},
+    {'id': 4, 'cost': 24, 'quality': 30},
+    {'id': 5, 'cost': 7, 'quality': 7},
+    {'id': 6, 'cost': 8, 'quality': 9},
+    {'id': 7, 'cost': 17, 'quality': 22},
+    {'id': 8, 'cost': 14, 'quality': 18},
+    {'id': 9, 'cost': 19, 'quality': 27},
+    {'id': 10, 'cost': 9, 'quality': 10},
+    {'id': 11, 'cost': 4, 'quality': 4},
+    {'id': 12, 'cost': 5, 'quality': 5},
+    {'id': 13, 'cost': 2, 'quality': 2},
+    {'id': 14, 'cost': 3, 'quality': 3},
+],
+[
+    {'id': 1, 'cost': 11, 'quality': 13},
+    {'id': 2, 'cost': 13, 'quality': 15},
+    {'id': 3, 'cost': 15, 'quality': 19},
+    {'id': 4, 'cost': 27, 'quality': 33},
+    {'id': 5, 'cost': 8, 'quality': 8},
+    {'id': 6, 'cost': 9, 'quality': 11},
+    {'id': 7, 'cost': 19, 'quality': 24},
+    {'id': 8, 'cost': 16, 'quality': 20},
+    {'id': 9, 'cost': 21, 'quality': 29},
+    {'id': 10, 'cost': 11, 'quality': 12},
+    {'id': 11, 'cost': 5, 'quality': 5},
+    {'id': 12, 'cost': 6, 'quality': 6},
+    {'id': 13, 'cost': 3, 'quality': 3},
+    {'id': 14, 'cost': 4, 'quality': 4},
+    {'id': 15, 'cost': 1, 'quality': 1},
+],
+[
+    {'id': 1, 'cost': 13, 'quality': 15},
+    {'id': 2, 'cost': 15, 'quality': 17},
+    {'id': 3, 'cost': 17, 'quality': 21},
+    {'id': 4, 'cost': 30, 'quality': 37},
+    {'id': 5, 'cost': 9, 'quality': 9},
+    {'id': 6, 'cost': 11, 'quality': 12},
+    {'id': 7, 'cost': 21, 'quality': 26},
+    {'id': 8, 'cost': 18, 'quality': 23},
+    {'id': 9, 'cost': 24, 'quality': 32},
+    {'id': 10, 'cost': 12, 'quality': 14},
+    {'id': 11, 'cost': 6, 'quality': 6},
+    {'id': 12, 'cost': 7, 'quality': 7},
+    {'id': 13, 'cost': 4, 'quality': 4},
+    {'id': 14, 'cost': 5, 'quality': 5},
+    {'id': 15, 'cost': 2, 'quality': 2},
+    {'id': 16, 'cost': 1, 'quality': 1},
+],
+[
+    {'id': 1, 'cost': 14, 'quality': 16},
+    {'id': 2, 'cost': 16, 'quality': 18},
+    {'id': 3, 'cost': 18, 'quality': 23},
+    {'id': 4, 'cost': 33, 'quality': 41},
+    {'id': 5, 'cost': 10, 'quality': 10},
+    {'id': 6, 'cost': 12, 'quality': 14},
+    {'id': 7, 'cost': 23, 'quality': 28},
+    {'id': 8, 'cost': 19, 'quality': 25},
+    {'id': 9, 'cost': 26, 'quality': 35},
+    {'id': 10, 'cost': 13, 'quality': 15},
+    {'id': 11, 'cost': 7, 'quality': 7},
+    {'id': 12, 'cost': 8, 'quality': 8},
+    {'id': 13, 'cost': 5, 'quality': 5},
+    {'id': 14, 'cost': 6, 'quality': 6},
+    {'id': 15, 'cost': 3, 'quality': 3},
+    {'id': 16, 'cost': 2, 'quality': 2},
+    {'id': 17, 'cost': 1, 'quality': 1},
+],
+[
+    {'id': 1, 'cost': 15, 'quality': 18},
+    {'id': 2, 'cost': 18, 'quality': 20},
+    {'id': 3, 'cost': 20, 'quality': 25},
+    {'id': 4, 'cost': 36, 'quality': 45},
+    {'id': 5, 'cost': 11, 'quality': 11},
+    {'id': 6, 'cost': 14, 'quality': 15},
+    {'id': 7, 'cost': 25, 'quality': 30},
+    {'id': 8, 'cost': 21, 'quality': 27},
+    {'id': 9, 'cost': 28, 'quality': 38},
+    {'id': 10, 'cost': 15, 'quality': 17},
+    {'id': 11, 'cost': 8, 'quality': 8},
+    {'id': 12, 'cost': 9, 'quality': 9},
+    {'id': 13, 'cost': 6, 'quality': 6},
+    {'id': 14, 'cost': 7, 'quality': 7},
+    {'id': 15, 'cost': 4, 'quality': 4},
+    {'id': 16, 'cost': 3, 'quality': 3},
+    {'id': 17, 'cost': 2, 'quality': 2},
+    {'id': 18, 'cost': 1, 'quality': 1},
+],
+[
+    {'id': 1, 'cost': 17, 'quality': 20},
+    {'id': 2, 'cost': 19, 'quality': 22},
+    {'id': 3, 'cost': 22, 'quality': 27},
+    {'id': 4, 'cost': 39, 'quality': 49},
+    {'id': 5, 'cost': 12, 'quality': 12},
+    {'id': 6, 'cost': 15, 'quality': 17},
+    {'id': 7, 'cost': 27, 'quality': 33},
+    {'id': 8, 'cost': 23, 'quality': 29},
+    {'id': 9, 'cost': 31, 'quality': 41},
+    {'id': 10, 'cost': 16, 'quality': 19},
+    {'id': 11, 'cost': 9, 'quality': 9},
+    {'id': 12, 'cost': 10, 'quality': 10},
+    {'id': 13, 'cost': 7, 'quality': 7},
+    {'id': 14, 'cost': 8, 'quality': 8},
+    {'id': 15, 'cost': 5, 'quality': 5},
+    {'id': 16, 'cost': 4, 'quality': 4},
+    {'id': 17, 'cost': 3, 'quality': 3},
+    {'id': 18, 'cost': 2, 'quality': 2},
+    {'id': 19, 'cost': 1, 'quality': 1},
+],
+[
+    {'id': 1, 'cost': 18, 'quality': 22},
+    {'id': 2, 'cost': 21, 'quality': 24},
+    {'id': 3, 'cost': 24, 'quality': 29},
+    {'id': 4, 'cost': 42, 'quality': 53},
+    {'id': 5, 'cost': 13, 'quality': 13},
+    {'id': 6, 'cost': 17, 'quality': 18},
+    {'id': 7, 'cost': 29, 'quality': 35},
+    {'id': 8, 'cost': 25, 'quality': 31},
+    {'id': 9, 'cost': 33, 'quality': 44},
+    {'id': 10, 'cost': 17, 'quality': 20},
+    {'id': 11, 'cost': 10, 'quality': 10},
+    {'id': 12, 'cost': 11, 'quality': 11},
+    {'id': 13, 'cost': 8, 'quality': 8},
+    {'id': 14, 'cost': 9, 'quality': 9},
+    {'id': 15, 'cost': 6, 'quality': 6},
+    {'id': 16, 'cost': 5, 'quality': 5},
+    {'id': 17, 'cost': 4, 'quality': 4},
+    {'id': 18, 'cost': 3, 'quality': 3},
+    {'id': 19, 'cost': 2, 'quality': 2},
+    {'id': 20, 'cost': 1, 'quality': 1},
+],
+[
+    {'id': 1, 'cost': 20, 'quality': 24},
+    {'id': 2, 'cost': 23, 'quality': 26},
+    {'id': 3, 'cost': 26, 'quality': 32},
+    {'id': 4, 'cost': 46, 'quality': 58},
+    {'id': 5, 'cost': 14, 'quality': 14},
+    {'id': 6, 'cost': 18, 'quality': 20},
+    {'id': 7, 'cost': 32, 'quality': 38},
+    {'id': 8, 'cost': 27, 'quality': 34},
+    {'id': 9, 'cost': 36, 'quality': 48},
+    {'id': 10, 'cost': 19, 'quality': 22},
+    {'id': 11, 'cost': 11, 'quality': 11},
+    {'id': 12, 'cost': 12, 'quality': 12},
+    {'id': 13, 'cost': 9, 'quality': 9},
+    {'id': 14, 'cost': 10, 'quality': 10},
+    {'id': 15, 'cost': 7, 'quality': 7},
+    {'id': 16, 'cost': 6, 'quality': 6},
+    {'id': 17, 'cost': 5, 'quality': 5},
+    {'id': 18, 'cost': 4, 'quality': 4},
+    {'id': 19, 'cost': 3, 'quality': 3},
+    {'id': 20, 'cost': 2, 'quality': 2},
+    {'id': 21, 'cost': 1, 'quality': 1},
+]
+
+
+
+
+
+]
+
+
+E = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4,
+     3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4,
+     3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4,
+     3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4,
+     3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
+
+E_b = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
 B_start = 20
 B_max = 30
 B_min = 10
-
-E = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
-K = 24
 
 
 nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
 
 
 
+'''
+'''
 def evaluate(iterations=100):
     battery_values = []
     quality_values = []
@@ -182,10 +464,8 @@ def evaluate(iterations=100):
         curr_node = solution[0]
         if not error:
             quality = 0
-            parent_visit = 200
             while len(curr_node.children) != 0:
-                move = curr_node.get_best_move(parent_visit)
-                parent_visit = move.visits
+                move = curr_node.get_best_move()
                 quality += move.task["quality"]
                 curr_node = move.child
             battery_values.append(solution[3])
@@ -199,13 +479,12 @@ def evaluate(iterations=100):
 
 
 #evaluate(10000)
-'''
-'''
+
 
 def eval_iterations():
     x_axis = []
     y_axis = []
-    for i in range(10, 501, 10):
+    for i in range(10, 251, 10):
         x_axis.append(i)
         battery_values = []
         quality_values = []
@@ -222,10 +501,164 @@ def eval_iterations():
             if battery_values[-1] < B_start:
                 battery_underflow += 1
         y_axis.append(statistics.fmean(quality_values))
-    fig = px.scatter(x=x_axis, y=y_axis)
+        print(statistics.fmean(quality_values))
+    fig = px.line(
+        x=x_axis,
+        y=y_axis,
+        markers=True,  # keeps the dots visible
+        color_discrete_sequence=['#FF8C00']  # same color as before
+    )
     fig.show()
 
 
+def exists_full_path(root, depth):
+    node = root
+    while len(node.children) > 0:
+        node = node.get_best_move().child
+    if node.timeslot == depth:
+        return True
+    return False
+
+
+def eval_iter_timeslots():
+    x_axis = []
+    y_axis = []
+
+    for i in range(20, 100, 10):
+        x_axis.append(i)
+        times = []
+
+        global K
+        K = i
+
+        for _ in range(10):
+            global nodes
+            nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
+            root = Node(B_start, 0)
+            if i >= 40:
+                print("Iter 1")
+            # Start timing
+            start = timeit.default_timer()
+            res = (root, [], 0, 0)
+
+            while len(res[1]) == 0:
+                res = mcts(root, 1)
+
+
+            # Stop timing
+            end = timeit.default_timer()
+            elapsed = (end - start) * 1000
+            times.append(elapsed)
+
+        # Store mean execution time for this K
+        y_axis.append(statistics.fmean(times))
+        print(statistics.fmean(times))
+
+    fig = px.line(
+        x=x_axis,
+        y=y_axis,
+        markers=True,
+        labels={"x": "K", "y": "mean time (s)"},
+        color_discrete_sequence=["#FF8C00"]
+    )
+    fig.show()
+
+
+def eval_iter_battery():
+    x_axis = []
+    y_axis = []
+    p = 0
+
+    for i in range(20, 200, 10):
+        x_axis.append(i - B_min)
+        times = []
+
+        magnifier = i / 30
+        global B_max, B_start, E, Tasks
+        B_max = i
+        B_start = int((B_max + B_min) / 2)
+
+        if magnifier != 1:
+            E = list(map(lambda x: round(magnifier * x), E_b))
+        else:
+            E = E_b[::]
+
+        Tasks = Task_sets[p]
+
+        for _ in range(100):
+            global nodes
+            nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
+            root = Node(B_start, 0)
+
+            # Start timing
+            start = timeit.default_timer()
+
+            res = (root, [], 0, 0)
+
+            while len(res[1]) == 0:
+                res = mcts(root, 1)
+
+            # Stop timing
+            end = timeit.default_timer()
+            elapsed = end - start
+            elapsed_ms = elapsed * 1000  # convert to milliseconds
+            times.append(elapsed_ms)
+
+        y_axis.append(statistics.fmean(times))
+        print(y_axis[-1])
+        p += 1
+
+    fig = px.line(
+        x=x_axis,
+        y=y_axis,
+        markers=True,  # keeps the dots visible
+        labels={"x": "B_max - B_min", "y": "mean time (ms)"},
+        color_discrete_sequence=['#FF8C00']
+    )
+    fig.show()
+
+
+def eval_iter_timeslots_battery():
+    x_axis = []
+    y_axis = []
+    p = 0
+
+    for i in range(20, 100, 10):
+        x_axis.append(i - B_min)
+        times = []
+
+        magnifier = i / 30
+        global B_max, B_start, E, Tasks, K
+        B_max = i
+        B_start = int((B_max + B_min) / 2)
+        K = i
+        if magnifier != 1:
+            E = list(map(lambda x: round(magnifier * x), E_b))
+        else:
+            E = E_b[::]
+
+        Tasks = Task_sets[p]
+
+        for _ in range(10):
+            global nodes
+            nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
+            root = Node(B_start, 0)
+
+            # Start timing
+            start = timeit.default_timer()
+
+            while not exists_full_path(root, i):
+                mcts(root, 1)
+
+            # Stop timing
+            end = timeit.default_timer()
+            elapsed = end - start
+            elapsed_ms = elapsed * 1000  # convert to milliseconds
+            times.append(elapsed_ms)
+
+        y_axis.append(statistics.fmean(times))
+        print(y_axis[-1])
+        p += 1
 
 def visualize_tree(root, max_nodes=1000):
     net = Network(height='800px', width='100%', directed=True)
@@ -268,21 +701,26 @@ def visualize_tree(root, max_nodes=1000):
     net.write_html("tree.html")
 
 '''
+Tasks = Task_sets[1]
+
 curr_node = Node(B_start, 0)
-resu, bp, bq, bpb = mcts(curr_node, 150)
+res = (curr_node, [], 0, 0)
+while len(res[1]) == 0:
+    res = mcts(curr_node, 1)
 quality = 0
-par_edge_visits = 150
 while len(curr_node.children) != 0:
-    move = curr_node.get_best_move(par_edge_visits)
+    move = curr_node.get_best_move()
     print(curr_node.timeslot, curr_node.battery, quality, move.task)
-    par_edge_visits = move.visits
     quality += move.task["quality"]
     curr_node = move.child
 
 
 print(curr_node.timeslot, curr_node.battery, quality)
-print(bp, bq, bpb, len(bp))
-'''
-eval_iterations()
+print(res[0], res[1], res[2], res[3], len(res[1]))
 
+Tasks = Task_sets[1]
+eval_iter_timeslots()
+'''
+Tasks = Task_sets[1]
+eval_iterations()
 
