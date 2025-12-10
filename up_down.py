@@ -1,28 +1,36 @@
 import numpy as np
 
-def initial_assignment(P, B_start, B_max, B_min, K, E, sunrise, sunset):
+
+def initial_assignment():
+    global P
     P = sort_plans(P)
     S = [P[0] for _ in range(K)]
     q_1 = P[0]
-    B_end = battery_end(B_start, K, E, S, B_max)
-    P_copy = P.copy()
-    while B_end < B_start or not check_battery_min(B_start, B_min, K, E, S, B_max):
-        P_copy = list(filter(lambda t: t["quality"] < q_1["quality"], P_copy))
-        if len(P_copy) == 0:
-            return None
-        q_1 = P_copy[0]
-        S = downgrade(S, q_1, sunset, B_start, B_min, K, E)
-        B_end = battery_end(B_start, K, E, S, B_max)
-
-    P_copy = P.copy()
-    if B_end >= B_start and check_battery_min(B_start, B_min, K, E, S, B_max):
-        while True:
-            P_copy = list(filter(lambda t: t["quality"] > q_1["quality"], P_copy))
-            B_end = battery_end(B_start, K, E, S, B_max)
-            if B_start == B_end or len(P_copy) == 0:
-                return S
+    B_end = battery_end(S)
+    P_copy = P[::]
+    while True:
+        q_1 = P[0]
+        if B_end >= B_start and check_battery_min(S):
+            while True:
+                print(P)
+                P_copy = list(filter(lambda t: t["quality"] > q_1["quality"], P))
+                B_end = battery_end(S)
+                if B_start == B_end or len(P_copy) == 0:
+                    print("?")
+                    return S
+                q_1 = P_copy[0]
+                S = upgrade(S, q_1)
+                P = P_copy
+        B_end = battery_end(S)
+        while B_end < B_start or not check_battery_min(S):
+            print(P)
+            P_copy = list(filter(lambda t: t["cost"] < q_1["cost"], P))
+            if len(P_copy) == 0:
+                return None
             q_1 = P_copy[0]
-            S = upgrade(S, q_1, sunrise, B_start, B_min, K, E)
+            S = downgrade(S, q_1)
+            B_end = battery_end(S)
+
 
 
 def sort_plans(P):
@@ -33,14 +41,14 @@ def sort_plans(P):
     return P
 
 
-def battery_end(B_start, K, E, S, B_max):
+def battery_end(S):
     B_end = B_start
     for i in range(K):
         B_end = min(B_max, B_end + E[i] - S[i]["cost"])
     return B_end
 
 
-def check_battery_min(B_start, B_min, K, E, S, B_max):
+def check_battery_min(S):
     B_lvl = B_start
     for i in range(K):
         B_lvl = min(B_max, B_lvl + E[i] - S[i]["cost"])
@@ -49,13 +57,13 @@ def check_battery_min(B_start, B_min, K, E, S, B_max):
     return True
 
 
-def upgrade(S, q_1, sunrise, B_start, B_min, K, E):
+def upgrade(S, q_1):
     s = sunrise
     j = 1
-    while battery_end(B_start, K, E, S, B_max) - B_start >= q_1["cost"] - S[s]["cost"] and j <= K:
+    while battery_end(S) - B_start >= q_1["cost"] - S[s]["cost"] and j <= K:
         H = S[s]
         S[s] = q_1
-        if not check_battery_min(B_start, B_min, K, E, S, B_max):
+        if not check_battery_min(S):
             S[s] = H
             return S
         s = (s + 1) % K
@@ -63,10 +71,10 @@ def upgrade(S, q_1, sunrise, B_start, B_min, K, E):
     return S
 
 
-def downgrade(S, q_1, sunset, B_start, B_min, K, E):
+def downgrade(S, q_1):
     s = sunset
     j = 1
-    while (battery_end(B_start, K, E, S, B_max) - B_start < 0 or not check_battery_min(B_start, B_min, K, E, S, B_max))\
+    while (battery_end(S) - B_start < 0 or not check_battery_min(S)) \
             and j <= K:
         S[s] = q_1
         s = (s + 1) % K
@@ -74,7 +82,14 @@ def downgrade(S, q_1, sunset, B_start, B_min, K, E):
     return S
 
 
-plans = [
+def quality(assignment):
+    q = 0
+    for i in assignment:
+        q += i["quality"]
+    return q
+
+
+P = [
     {'id': 1, 'cost': 3, 'quality': 5},
     {'id': 2, 'cost': 2, 'quality': 3},
     {'id': 3, 'cost': 4, 'quality': 6},
@@ -83,13 +98,14 @@ plans = [
 ]
 B_min = 10
 B_max = 30
-B_start = 15
+B_start = 20
 K = 24
-sunrise = 1
-sunset = 18
-E = [1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0]
+sunrise = 15
+sunset = 0
+E = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
 
-result = initial_assignment(plans, B_start, B_max, B_min, K, E, sunrise, sunset)
+result = initial_assignment()
 
 print(result)
-print(battery_end(B_start, K, E, result, B_max), check_battery_min(B_start, B_min, K, E, result, B_max))
+print(battery_end(result), check_battery_min(result))
+print(quality(result))
