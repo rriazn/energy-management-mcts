@@ -7,7 +7,7 @@ import numpy as np
 import timeit
 from pyvis.network import Network
 
-K = 24
+K = 100
 class Edge:
     def __init__(self, parent, child, task):
         self.parent = parent

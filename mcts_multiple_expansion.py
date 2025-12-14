@@ -8,8 +8,6 @@ import timeit
 from pyvis.network import Network
 
 
-
-
 class Edge:
     def __init__(self, parent, child, task):
         self.parent = parent
@@ -67,6 +65,8 @@ class Node:
         return edges
 
     def get_best_move(self, c=math.sqrt(2)):
+        if self.battery == B_max:
+            return max(self.children, key=lambda edge: edge.task["quality"])
         return max(self.children, key=lambda edge: (edge.child.win_quality / edge.child.visits))
         # + c * math.sqrt(math.log(self.visits) / edge.child.visits))
         # return max(self.children, key=lambda edge: (edge.child.win_quality / edge.child.visits) + c *
@@ -84,15 +84,18 @@ class Node:
                     sim_state_battery) if sim_state_battery >= B_start else \
                     (penalized_quality(sim_state_quality, sim_state_battery), sim_path, sim_state_quality,
                      sim_state_battery)
-            try:
-                available_tasks = list(filter(lambda t: sim_state_battery + E[sim_timeslot] -
+
+            available_tasks = list(filter(lambda t: sim_state_battery + E[sim_timeslot] -
                                                         t["cost"] >= B_min, Tasks))
-            except IndexError:
-                print(sim_timeslot, len(E))
-                exit(1)
+
             if not available_tasks:
                 return 0, [], 0, 0
             chosen_task = random.choice(available_tasks)
+            if sim_state_battery == B_max:
+                chosen_task = max(list(filter(
+                    lambda t: sim_state_battery + E[sim_timeslot] - t["cost"] >= B_start, available_tasks
+                )), key=lambda task: task["quality"])
+
             sim_timeslot += 1
             sim_state_battery = min(B_max, sim_state_battery - chosen_task["cost"] + E[sim_timeslot - 1])
             sim_state_quality += chosen_task["quality"]
@@ -251,10 +254,10 @@ Task_sets = [
         {'id': 2, 'cost': 9, 'quality': 10},
         {'id': 3, 'cost': 10, 'quality': 13},
         {'id': 4, 'cost': 19, 'quality': 23},
-        {'id': 5, 'cost': 5, 'quality': 5},
+        {'id': 5, 'cost': 27, 'quality': 32},
         {'id': 6, 'cost': 6, 'quality': 7},
         {'id': 7, 'cost': 13, 'quality': 18},
-        {'id': 8, 'cost': 11, 'quality': 14},
+        {'id': 8, 'cost': 25, 'quality': 29},
         {'id': 9, 'cost': 15, 'quality': 22},
         {'id': 10, 'cost': 7, 'quality': 8},
         {'id': 11, 'cost': 2, 'quality': 2},
@@ -440,306 +443,38 @@ E_20 = [3, 2, 1, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 6, 6, 6, 6, 5, 4]
 E_25 = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 6, 5, 5, 4]
 E_30 = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 4, 4, 5, 5, 6, 6, 6, 6, 6, 5, 5, 4, 4, 3]
 E_35 = [3, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 6, 6, 6, 6, 5, 5, 5, 4, 4, 3]
-E_40 = [3, 3, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5, 4, 4, 3]
-E_45 = [3, 3, 2, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 4, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5, 4, 4, 3]
-E_50 = [3, 3, 2, 2, 2, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5, 4, 4, 4, 3]
-E = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
+E_40 = [3, 3, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5,
+        4, 4, 3]
+E_45 = [3, 3, 2, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 4, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6,
+        6, 6, 5, 5, 5, 4, 4, 3]
+E_50 = [3, 3,
+        2, 2, 2,
+        1, 1, 1, 1,
+        0, 0, 0, 0, 0, 0, 0, 0, 0,
+        1, 1, 1,
+        2, 2, 2,
+        3, 3, 3,
+        4, 4, 4,
+        5, 5, 5,
+        6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+        5, 5, 5,
+        4, 4, 4,
+        3
+        ]
+E = [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 16, 24, 30, 33, 32, 29, 23, 14]
+
 E_b = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
-B_start = 55
-B_max = 100
+B_start = 80
+B_max = 150
 B_min = 10
-
+magnifier = B_max / 30
+E = list(map(lambda e: round(magnifier * e), E))
 nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
-Tasks = Task_sets[7]
+Tasks = Task_sets[8]
 '''
 '''
 
 
-
-def evaluate(iterations=100):
-    battery_values = []
-    quality_values = []
-    battery_underflow = 0
-    errors = 0
-    no_full_path = 0
-    for i in range(iterations):
-        global nodes
-        nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
-        curr_node = Node(B_start, 0)
-        error = False
-        solution = None
-        try:
-            solution = mcts(curr_node, 200)
-        except ValueError:
-            errors += 1
-            error = True
-        curr_node = solution[0]
-        if not error:
-            quality = 0
-            while len(curr_node.children) != 0:
-                move = curr_node.get_best_move()
-                quality += move.task["quality"]
-                curr_node = move.child
-            battery_values.append(solution[3])
-            quality_values.append(solution[2])
-            if battery_values[-1] < B_start:
-                battery_underflow += 1
-            if curr_node.timeslot < 24:
-                no_full_path += 1
-
-    print(statistics.fmean(battery_values), statistics.fmean(quality_values), statistics.stdev(quality_values))
-
-
-# evaluate(10000)
-
-
-def eval_iterations():
-    x_axis = []
-    y_axis = []
-    for i in range(1, 20, 1):
-        x_axis.append(i)
-        battery_values = []
-        quality_values = []
-        battery_underflow = 0
-        errors = 0
-        no_full_path = 0
-        for j in range(100):
-            global nodes
-            nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
-            curr_node = Node(B_start, 0)
-            solution = mcts(curr_node, iterations=i)
-            quality_values.append(solution[2])
-            battery_values.append(solution[3])
-            if battery_values[-1] < B_start:
-                battery_underflow += 1
-        y_axis.append(statistics.fmean(quality_values))
-        print(statistics.fmean(quality_values))
-    fig = px.line(
-        x=x_axis,
-        y=y_axis,
-        markers=True,  # keeps the dots visible
-        color_discrete_sequence=['#FF8C00']  # same color as before
-    )
-    fig.show()
-
-
-def exists_full_path(root, depth):
-    node = root
-    while len(node.children) > 0:
-        node = node.get_best_move().child
-    if node.timeslot == depth:
-        return True
-    return False
-
-
-def eval_iter_timeslots():
-    x_axis = []
-    y_axis = []
-
-    for i in range(20, 60, 10):
-        x_axis.append(i)
-        times = []
-
-        global K
-        K = i
-
-        for _ in range(1):
-            global nodes
-            nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
-            root = Node(B_start, 0)
-
-            # Start timing
-            start = timeit.default_timer()
-            res = (root, [], 0, 0)
-            i = 0
-            while len(res[1]) == 0:
-                res = mcts(root, 1)
-                i += 1
-
-            # Stop timing
-            end = timeit.default_timer()
-            elapsed = (end - start) * 1000
-            times.append(i)
-
-        # Store mean execution time for this K
-        y_axis.append(statistics.fmean(times))
-        print(statistics.fmean(times))
-
-    fig = px.line(
-        x=x_axis,
-        y=y_axis,
-        markers=True,
-        labels={"x": "K", "y": "mean time (s)"},
-        color_discrete_sequence=["#FF8C00"]
-    )
-    fig.show()
-
-
-def eval_iter_battery():
-    x_axis = []
-    y_axis = []
-    p = 0
-
-    for i in range(20, 200, 10):
-        x_axis.append(i - B_min)
-        times = []
-
-        magnifier = i / 30
-        global B_max, B_start, E, Tasks
-        B_max = i
-        B_start = int((B_max + B_min) / 2)
-
-        if magnifier != 1:
-            E = list(map(lambda x: round(magnifier * x), E_b))
-        else:
-            E = E_b[::]
-
-        Tasks = Task_sets[p]
-
-        for _ in range(100):
-            global nodes
-            nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
-            root = Node(B_start, 0)
-
-            # Start timing
-            start = timeit.default_timer()
-
-            res = (root, [], 0, 0)
-
-            while len(res[1]) == 0:
-                res = mcts(root, 1)
-
-            # Stop timing
-            end = timeit.default_timer()
-            elapsed = end - start
-            elapsed_ms = elapsed * 1000  # convert to milliseconds
-            times.append(elapsed_ms)
-
-        y_axis.append(statistics.fmean(times))
-        print(y_axis[-1])
-        p += 1
-
-    fig = px.line(
-        x=x_axis,
-        y=y_axis,
-        markers=True,  # keeps the dots visible
-        labels={"x": "B_max - B_min", "y": "mean time (ms)"},
-        color_discrete_sequence=['#FF8C00']
-    )
-    fig.show()
-
-
-def eval_iter_timeslots_battery():
-    x_axis = []
-    y_axis = []
-    p = 0
-
-    for i in range(20, 100, 10):
-        x_axis.append(i - B_min)
-        times = []
-
-        magnifier = i / 30
-        global B_max, B_start, E, Tasks, K
-        B_max = i
-        B_start = int((B_max + B_min) / 2)
-        K = i
-        if magnifier != 1:
-            E = list(map(lambda x: round(magnifier * x), E_b))
-        else:
-            E = E_b[::]
-
-        Tasks = Task_sets[p]
-
-        for _ in range(10):
-            global nodes
-            nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
-            root = Node(B_start, 0)
-
-            # Start timing
-            start = timeit.default_timer()
-
-            while not exists_full_path(root, i):
-                mcts(root, 1)
-
-            # Stop timing
-            end = timeit.default_timer()
-            elapsed = end - start
-            elapsed_ms = elapsed * 1000  # convert to milliseconds
-            times.append(elapsed_ms)
-
-        y_axis.append(statistics.fmean(times))
-        print(y_axis[-1])
-        p += 1
-
-
-def visualize_tree(root, max_nodes=1000):
-    net = Network(height='800px', width='100%', directed=True)
-    queue = deque([root])
-    visited = set()
-    count = 0
-
-    while queue and count < max_nodes:
-        current = queue.popleft()
-        node_id = str(id(current))
-        if node_id in visited:
-            continue
-        visited.add(node_id)
-        count += 1
-
-        # node label
-        label = f"T{current.timeslot}\nB{current.battery}"
-        net.add_node(node_id, label=label, title=label, color="#a6cee3")
-
-        for edge in current.children:
-            child = edge.child
-            if not child:
-                continue
-            child_id = str(id(child))
-            label_text = f"Task {edge.task['id']}\nQ={edge.task['quality']}"
-            color = "#1f78b4"
-
-            # add child node if not seen yet
-            if child_id not in visited:
-                net.add_node(
-                    child_id,
-                    label=f"T{child.timeslot}\nB{child.battery}",
-                    title=f"Battery={child.battery}, Timeslot={child.timeslot}",
-                    color="#b2df8a"
-                )
-                queue.append(child)
-
-            # Add edge with quality label
-            net.add_edge(node_id, child_id, label=label_text, color=color, title=f"Quality={edge.task['quality']}")
-    net.write_html("tree.html")
-
-
-def random_assignment_eval():
-    quality_vals = []
-    no_solution = 0
-    not_energy_neutral = 0
-    battery_underflow = 0
-    for i in range(10000):
-        qual = 0
-        batt = B_start
-        for j in range(K):
-            task = random.choice(Tasks)
-            qual += task["quality"]
-            batt = min(B_max, batt + E[j] - task["cost"])
-            if batt < B_min:
-                no_solution += 1
-                battery_underflow += 1
-                break
-            if j == K - 1:
-                if batt < B_start:
-                    no_solution += 1
-                    not_energy_neutral += 1
-                else:
-                    quality_vals.append(qual)
-    print("No solution: ", no_solution)
-    print("Not energy neutral: ", not_energy_neutral)
-    print("Battery underflow: ", battery_underflow)
-    if len(quality_vals) > 0:
-        print("Avg quality: ", statistics.fmean(quality_vals))
 
 
 
@@ -764,11 +499,14 @@ print(res[0], res[1], res[2], res[3], len(res[1]))
 
 Tasks = Task_sets[1]
 random_assignment_eval()
-#eval_iter_timeslots()
+
+
+eval_iter_timeslots()
 '''
 
 
 
-magnifier = B_max / 30
-E = list(map(lambda e: round(magnifier * e), E_b))
-eval_iterations()
+print(len(E))
+
+
+print(Task_sets[8])

@@ -106,20 +106,20 @@ Task_sets = [
     {'id': 10, 'cost': 6, 'quality': 7},
     {'id': 11, 'cost': 1, 'quality': 1},
     ],
-[
+    [
     {'id': 1, 'cost': 8, 'quality': 9},
-    {'id': 2, 'cost': 9, 'quality': 10},
-    {'id': 3, 'cost': 10, 'quality': 13},
-    {'id': 4, 'cost': 19, 'quality': 23},
-    {'id': 5, 'cost': 5, 'quality': 5},
-    {'id': 6, 'cost': 6, 'quality': 7},
-    {'id': 7, 'cost': 13, 'quality': 18},
-    {'id': 8, 'cost': 11, 'quality': 14},
-    {'id': 9, 'cost': 15, 'quality': 22},
-    {'id': 10, 'cost': 7, 'quality': 8},
-    {'id': 11, 'cost': 2, 'quality': 2},
-    {'id': 12, 'cost': 3, 'quality': 3},
-],
+        {'id': 2, 'cost': 9, 'quality': 10},
+        {'id': 3, 'cost': 10, 'quality': 13},
+        {'id': 4, 'cost': 19, 'quality': 23},
+        {'id': 5, 'cost': 27, 'quality': 32},
+        {'id': 6, 'cost': 6, 'quality': 7},
+        {'id': 7, 'cost': 13, 'quality': 18},
+        {'id': 8, 'cost': 25, 'quality': 29},
+        {'id': 9, 'cost': 15, 'quality': 22},
+        {'id': 10, 'cost': 7, 'quality': 8},
+        {'id': 11, 'cost': 2, 'quality': 2},
+        {'id': 12, 'cost': 1, 'quality': 1},
+    ],
 [
     {'id': 1, 'cost': 9, 'quality': 10},
     {'id': 2, 'cost': 10, 'quality': 12},
@@ -299,84 +299,14 @@ Task_sets = [
 ]
 
 K = 24
-Bstart = 20
-Bmax = 30
+Bstart = 80
+Bmax = 150
 Bmin = 10
 
-E = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4,
-     3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4,
-     3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4,
-     3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4,
-     3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
+E = [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 16, 24, 30, 33, 32, 29, 23, 14]
 E_b = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
 
 
-def eval_iter_timeslots():
-    x_axis = []
-    y_axis = []
 
-    for i in range(20, 100, 10):
-        x_axis.append(i)
-        times = []
-
-        global K
-        K = i
-
-        for _ in range(100):
-            # Start timing
-            start = timeit.default_timer()
-
-
-            solve(Tasks, K, Bmax, Bmin, Bstart, E)
-            # Stop timing
-            end = timeit.default_timer()
-            elapsed = (end - start) * 1000
-            times.append(elapsed)
-
-        # Store mean execution time for this K
-        y_axis.append(statistics.fmean(times))
-        print(statistics.fmean(times))
-
-
-
-
-def eval_iter_battery():
-    x_axis = []
-    y_axis = []
-    p = 0
-
-    for i in range(20, 200, 10):
-        x_axis.append(i - Bmin)
-        times = []
-
-        magnifier = i / 30
-        global Bmax, Bstart, E, Tasks
-        Bmax = i
-        Bstart = int((Bmax + Bmin) / 2)
-
-        if magnifier != 1:
-            E = list(map(lambda x: round(magnifier * x), E_b))
-        else:
-            E = E_b[::]
-
-        Tasks = Task_sets[p]
-
-        for _ in range(100):
-
-            # Start timing
-            start = timeit.default_timer()
-
-            solve(Tasks, K, Bmax, Bmin, Bstart, E)
-
-            # Stop timing
-            end = timeit.default_timer()
-            elapsed = end - start
-            elapsed_ms = elapsed * 1000  # convert to milliseconds
-            times.append(elapsed_ms)
-
-        y_axis.append(statistics.fmean(times))
-        print(y_axis[-1])
-        p += 1
-
-
-eval_iter_battery()
+Tasks = Task_sets[8]
+print(max(solve(Tasks, K, Bmax, Bmin, Bstart, E)[1][0]))
