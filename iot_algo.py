@@ -309,4 +309,4 @@ E_b = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
 
 
 Tasks = Task_sets[8]
-print(max(solve(Tasks, K, Bmax, Bmin, Bstart, E)[1][0]))
+print(max(solve(Tasks, K, Bmax, Bmin, Bstart, E)[1][0][Bstart::]))
