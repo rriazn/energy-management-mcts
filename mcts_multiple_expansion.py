@@ -461,16 +461,21 @@ E_50 = [3, 3,
         4, 4, 4,
         3
         ]
-E = [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 16, 24, 30, 33, 32, 29, 23, 14]
+E_b = [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 16, 24, 30, 33, 32, 29, 23, 14]
 
-E_b = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
-B_start = 80
-B_max = 150
+E = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
+B_start = 30
+B_max = 50
 B_min = 10
 magnifier = B_max / 30
 E = list(map(lambda e: round(magnifier * e), E))
 nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
-Tasks = Task_sets[8]
+Tasks = [{'id': 1, 'cost': 4, 'quality': 6},
+     {'id': 2, 'cost': 3, 'quality': 5},
+     {'id': 3, 'cost': 5, 'quality': 7},
+     {'id': 4, 'cost': 8, 'quality': 10},
+     {'id': 5, 'cost': 2, 'quality': 3},
+     {'id': 6, 'cost': 1, 'quality': 1}]
 '''
 '''
 
@@ -480,12 +485,12 @@ Tasks = Task_sets[8]
 
 '''
 Tasks = Task_sets[1]
-
+'''
 curr_node = Node(B_start, 0)
 res = mcts(curr_node, 10)
 quality = 0
 print(curr_node.win_quality)
-visualize_tree(curr_node)
+#visualize_tree(curr_node)
 
 while len(curr_node.children) != 0:
     move = curr_node.get_best_move()
@@ -495,7 +500,7 @@ while len(curr_node.children) != 0:
 
 print(curr_node.timeslot, curr_node.battery, quality)
 print(res[0], res[1], res[2], res[3], len(res[1]))
-
+'''
 
 Tasks = Task_sets[1]
 random_assignment_eval()
@@ -506,7 +511,3 @@ eval_iter_timeslots()
 
 
 
-print(len(E))
-
-
-print(Task_sets[8])

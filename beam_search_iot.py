@@ -8,17 +8,17 @@ K = 24
 B_max = 50
 B_min = 10
 B_start = 30
-E = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 5, 8, 10, 11, 11, 10, 8, 5]
+E = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
 
 
 Tasks = [{'id': 1, 'cost': 4, 'quality': 6},
-     {'id': 2, 'cost': 3, 'quality': 4},
+     {'id': 2, 'cost': 3, 'quality': 5},
      {'id': 3, 'cost': 5, 'quality': 7},
-     {'id': 4, 'cost': 10, 'quality': 12},
-     {'id': 5, 'cost': 2, 'quality': 2},
+     {'id': 4, 'cost': 8, 'quality': 10},
+     {'id': 5, 'cost': 2, 'quality': 3},
      {'id': 6, 'cost': 1, 'quality': 1}]
 
-beam_width = round(len(Tasks) / 3)
+beam_width = 3* round(len(Tasks) / 3)
 
 nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
 
@@ -142,5 +142,10 @@ def visualize_tree(root, max_nodes=1000):
 ltn, rt = beam_search()
 for node in ltn:
     print("Node: ", node.battery_level, "; Quality: ", node.best_quality)
+
+node = ltn[2]
+while len(node.parents) != 0:
+    print(node.best_parent.task["id"])
+    node = node.best_parent.parent
 
 visualize_tree(rt)
