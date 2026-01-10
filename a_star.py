@@ -49,8 +49,6 @@ def reconstruct_path(node):
 
 
 def a_star(start_node):
-    sorted_tasks = sorted(Tasks, key=lambda t: t["quality"], reverse=True)
-
     open_list = [start_node]
     closed_list = []
 
@@ -66,7 +64,7 @@ def a_star(start_node):
         elif best_node.timeslot == K:
             continue
         # Expand node
-        for t in sorted_tasks:
+        for t in Tasks:
             new_battery = min(B_max, best_node.battery_level + E[best_node.timeslot] - t["cost"])
 
             # Skip impossible battery states
