@@ -108,8 +108,9 @@ def backpropagate(summed_up_result, path, edges_count):
         node.win_quality += summed_up_result
 
 
-def mcts(start_node, iterations=500):
-    root = start_node
+def mcts(root, iterations=500):
+    global nodes
+    nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
 
     # save the best path explored by selection, expansion and simulation
     best_path = []
@@ -437,11 +438,7 @@ Task_sets = [
 
 ]
 K = 24
-E_10 = [3, 1, 0, 0, 1, 2, 4, 6, 6, 5]
-E_15 = [3, 1, 0, 0, 0, 0, 1, 2, 4, 5, 6, 6, 6, 5, 4]
-E_20 = [3, 2, 1, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 6, 6, 6, 6, 5, 4]
-E_25 = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 6, 5, 5, 4]
-E_30 = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 4, 4, 5, 5, 6, 6, 6, 6, 6, 5, 5, 4, 4, 3]
+
 E_35 = [3, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 6, 6, 6, 6, 5, 5, 5, 4, 4, 3]
 E_40 = [3, 3, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5,
         4, 4, 3]
@@ -470,12 +467,15 @@ B_min = 10
 magnifier = B_max / 30
 E = list(map(lambda e: round(magnifier * e), E))
 nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
-Tasks = [{'id': 1, 'cost': 4, 'quality': 6},
-     {'id': 2, 'cost': 3, 'quality': 5},
-     {'id': 3, 'cost': 5, 'quality': 7},
-     {'id': 4, 'cost': 8, 'quality': 10},
-     {'id': 5, 'cost': 2, 'quality': 3},
-     {'id': 6, 'cost': 1, 'quality': 1}]
+Tasks = [
+    {'id': 2, 'cost': 2,  'quality': 3},   # low-power sensing / sync
+    {'id': 3, 'cost': 4,  'quality': 6},   # moderate task (fits early hours)
+    {'id': 4, 'cost': 6,  'quality': 9},   # mid-day processing
+    {'id': 5, 'cost': 9,  'quality': 13},  # heavy task (needs solar ramp-up)
+    {'id': 6, 'cost': 12, 'quality': 18},  # peak-hour workload
+    {'id': 7, 'cost': 15, 'quality': 22} ,  # maximum-value task (solar peak)
+    {'id': 1, 'cost': 1,  'quality': 1}   # trivial background task
+]
 '''
 '''
 
@@ -485,7 +485,7 @@ Tasks = [{'id': 1, 'cost': 4, 'quality': 6},
 
 '''
 Tasks = Task_sets[1]
-'''
+
 curr_node = Node(B_start, 0)
 res = mcts(curr_node, 10)
 quality = 0
@@ -500,7 +500,7 @@ while len(curr_node.children) != 0:
 
 print(curr_node.timeslot, curr_node.battery, quality)
 print(res[0], res[1], res[2], res[3], len(res[1]))
-'''
+
 
 Tasks = Task_sets[1]
 random_assignment_eval()

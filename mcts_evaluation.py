@@ -1,12 +1,16 @@
 import mcts_multiple_expansion as mcts
+import iot_algo
+from energy_harvesting_prediction import get_energy_predictions_clearsky
 import numpy as np
 import random
 import statistics
 import timeit
 import plotly.express as px
+import plotly.graph_objects as go
+import pandas as pd
 from pyvis.network import Network
 from collections import deque
-
+from datetime import date, datetime, timedelta
 
 def evaluate(iterations=100):
     battery_values = []
@@ -284,4 +288,313 @@ def random_assignment_eval():
         print("Avg quality: ", statistics.fmean(quality_vals))
 
 
-eval_iterations()
+import numpy as np
+import plotly.graph_objects as go
+from datetime import date, timedelta
+
+
+def create_battery_calendar_heatmap():
+    year = 2026
+    days_in_year = (date(year + 1, 1, 1) - date(year, 1, 1)).days
+    start = date(year, 1, 1)
+
+    battery_calendar = np.full((7, 53), np.nan)
+    date_labels = np.empty((7, 53), dtype=object)
+
+    for i in range(days_in_year):
+        current_day = start + timedelta(days=i)
+        weekday = current_day.weekday()  # 0 = monday, 6 = sunday
+
+        week = current_day.isocalendar()[1] - 1
+
+        if week >= 53:
+            continue
+
+        harvesting_predictions = get_energy_predictions_clearsky(24, current_day.strftime("%Y-%m-%d"))
+        harvesting_predictions = [round(p / 10) for p in harvesting_predictions]
+
+        mcts.E = harvesting_predictions
+        result = mcts.mcts(mcts.Node(mcts.B_start, 0, None), 20)
+
+        battery_diff = result[3] - mcts.B_start
+
+        battery_calendar[weekday, week] = battery_diff / mcts.B_start
+        date_labels[weekday, week] = current_day.strftime("%b %d")
+
+        print(f"{current_day.strftime('%Y-%m-%d')}: Final={result[3]}, Diff={battery_diff:+.1f}")
+
+    text = np.round(battery_calendar, 2).astype(str)
+    battery_calendar = np.flipud(battery_calendar)
+    text = text[::-1]
+    weekday_labels = ["Sun", "Sat", "Fri", "Thu", "Wed", "Tue", "Mon"]
+    week_labels = [str(i + 1) for i in range(53)]
+    custom_colorscale = [
+        [0.0, '#d73027'],  # Deep red (very negative)
+        [0.3, '#fc8d59'],  # Orange-red (negative)
+        [0.45, '#fee08b'],  # Light orange (slightly negative)
+        [0.5, '#1a9850'],  # Green (zero/neutral - ideal)
+        [0.55, '#91cf60'],  # Light green (slightly positive)
+        [0.7, '#d9ef8b'],  # Yellow-green (positive)
+        [0.85, '#ffffbf'],  # Light yellow (more positive)
+        [1.0, '#ffff00']  # Bright yellow (very positive)
+    ]
+
+    fig = go.Figure(data=go.Heatmap(
+        z=battery_calendar,
+        x=week_labels,
+        y=weekday_labels,
+        text=text,
+        texttemplate='%{text}',
+        colorscale=custom_colorscale,
+        zmid=0,
+        colorbar=dict(
+            title="Battery Δ<br>(vs neutral)",
+            ticksuffix=" ",
+        ),
+        xgap=1,
+        ygap=1
+    ))
+
+    fig.update_layout(
+        title=f"MCTS Energy Neutrality Calendar - {year}",
+        xaxis_title="Week of Year",
+        yaxis_title="Day of Week",
+        height=400,
+        width=1400,
+        xaxis=dict(side='top'),
+    )
+
+    fig.show()
+
+    return battery_calendar
+
+def create_quality_calendar_heatmap():
+    year = 2026
+    days_in_year = (date(year + 1, 1, 1) - date(year, 1, 1)).days
+    start = date(year, 1, 1)
+
+
+    qual_calendar = np.full((7, 53), np.nan)
+    date_labels = np.empty((7, 53), dtype=object)
+    iot_algo.Tasks = mcts.Tasks
+    for i in range(days_in_year):
+        current_day = start + timedelta(days=i)
+        weekday = current_day.weekday()
+
+        week = current_day.isocalendar()[1] - 1
+
+        if week >= 53:
+            continue
+
+        harvesting_predictions = get_energy_predictions_clearsky(24, current_day.strftime("%Y-%m-%d"))
+        harvesting_predictions = [round(p / 10) for p in harvesting_predictions]
+
+
+        mcts.E = harvesting_predictions
+        result = mcts.mcts(mcts.Node(mcts.B_start, 0, None), 20)
+
+        iot_algo.E = harvesting_predictions
+        max_qual = max(
+            iot_algo.solve(
+                iot_algo.Tasks, iot_algo.K, iot_algo.Bmax, iot_algo.Bmin, iot_algo.Bstart, iot_algo.E
+            )[1][0][:iot_algo.Bstart + 1:])
+
+        qual_diff = result[2] - max_qual
+
+        qual_calendar[weekday, week] = qual_diff / max_qual
+        date_labels[weekday, week] = current_day.strftime("%b %d")
+
+        print(f"{current_day.strftime('%Y-%m-%d')}: Final={result[2]}, Diff={qual_diff:+.1f}")
+
+
+    text = np.round(qual_calendar, 2).astype(str)
+    qual_calendar = np.flipud(qual_calendar)
+    text = text[::-1]
+    weekday_labels = ["Sun", "Sat", "Fri", "Thu", "Wed", "Tue", "Mon"]
+    week_labels = [str(i + 1) for i in range(53)]
+    custom_colorscale = [
+        [0.00, '#000000'],  # Black
+        [0.05, '#0d0000'],  # Almost black
+        [0.10, '#1a0000'],  # Almost black
+        [0.15, '#330000'],  # Almost black red
+        [0.20, '#550000'],  # Very dark red
+        [0.25, '#770000'],  # Very dark red
+        [0.30, '#990000'],  # Darker red
+        [0.35, '#cc0000'],  # Dark red
+        [0.40, '#dd0000'],  # Dark red
+        [0.45, '#ee0000'],  # Slightly darker red
+        [0.50, '#ff0000'],  # Pure red
+        [0.55, '#ff3300'],  # Red-orange
+        [0.60, '#ff6600'],  # Orange-red
+        [0.65, '#ff9900'],  # Orange
+        [0.70, '#ffcc00'],  # Orange-yellow
+        [0.75, '#ffff00'],  # Pure yellow
+        [0.80, '#eeff00'],  # Yellow
+        [0.85, '#ccff00'],  # Yellow
+        [0.90, '#66ff00'],  # Yellow-green
+        [0.95, '#33ff00'],  # Yellow-green
+        [1.00, '#00ff00']  # Bright green
+    ]
+
+    fig = go.Figure(data=go.Heatmap(
+        z=qual_calendar,
+        x=week_labels,
+        y=weekday_labels,
+        text=text,
+        texttemplate='%{text}',
+        colorscale=custom_colorscale,
+        zmin=-1,
+        zmax=0,
+        zauto=False,
+        colorbar=dict(
+            title="Quality value vs. max.",
+            ticksuffix=" ",
+        ),
+        xgap=1,
+        ygap=1
+    ))
+
+    fig.update_layout(
+        title=f"MCTS Quality Calendar - {year}",
+        xaxis_title="Week of Year",
+        yaxis_title="Day of Week",
+        height=400,
+        width=1400,
+        xaxis=dict(side='top'),
+    )
+
+    fig.show()
+
+    return qual_calendar
+
+energy_vectors = [
+    [3, 1, 0, 0, 1, 2, 4, 6, 6, 5],
+    [3, 1, 0, 0, 0, 0, 1, 2, 4, 5, 6, 6, 6, 5, 4],
+    [3, 2, 1, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 6, 6, 6, 6, 5, 4],
+    [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 6, 5, 5, 4],
+    [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 4, 4, 5, 5, 6, 6, 6, 6, 6, 5, 5, 4, 4, 3]
+]
+
+
+def create_timeslot_battery_heatmap_quality(n):
+    qual_values = np.empty((n, n))
+    battery_values = np.empty((n,n))
+    for i in range(n):
+        mcts.E = energy_vectors[i]
+        iot_algo.E = energy_vectors[i]
+        mcts.K = 10 + 5 * i
+        iot_algo.K = 10 + 5 * i
+        for j in range(n):
+            mcts.B_max = 30 + 10 * i
+            iot_algo.B_max = 30 + 10 * i
+            mcts.B_start = round((mcts.B_max + mcts.B_min) / 2)
+            iot_algo.B_start = round((mcts.B_max + mcts.B_min) / 2)
+
+            result = mcts.mcts(mcts.Node(mcts.B_start, 0), iterations=round(mcts.K / 2))
+            max_qual = max(
+            iot_algo.solve(
+                iot_algo.Tasks, iot_algo.K, iot_algo.Bmax, iot_algo.Bmin, iot_algo.Bstart, iot_algo.E
+            )[1][0][:iot_algo.Bstart + 1:])
+
+            qual_diff = result[2] - max_qual
+            qual_values[i, j] = qual_diff / max_qual
+
+            battery_diff = result[3] - mcts.B_start
+            battery_values[i, j] = battery_diff / mcts.B_start
+    text_qual = np.round(qual_values, 2).astype(str)
+    text_battery = np.round(battery_values, 2).astype(str)
+    custom_qual_colorscale = [
+        [0.00, '#000000'],  # Black
+        [0.05, '#0d0000'],  # Almost black
+        [0.10, '#1a0000'],  # Almost black
+        [0.15, '#330000'],  # Almost black red
+        [0.20, '#550000'],  # Very dark red
+        [0.25, '#770000'],  # Very dark red
+        [0.30, '#990000'],  # Darker red
+        [0.35, '#cc0000'],  # Dark red
+        [0.40, '#dd0000'],  # Dark red
+        [0.45, '#ee0000'],  # Slightly darker red
+        [0.50, '#ff0000'],  # Pure red
+        [0.55, '#ff3300'],  # Red-orange
+        [0.60, '#ff6600'],  # Orange-red
+        [0.65, '#ff9900'],  # Orange
+        [0.70, '#ffcc00'],  # Orange-yellow
+        [0.75, '#ffff00'],  # Pure yellow
+        [0.80, '#eeff00'],  # Yellow
+        [0.85, '#ccff00'],  # Yellow
+        [0.90, '#66ff00'],  # Yellow-green
+        [0.95, '#33ff00'],  # Yellow-green
+        [1.00, '#00ff00']  # Bright green
+    ]
+    custom_battery_colorscale = [
+        [0.0, '#d73027'],  # Deep red (very negative)
+        [0.3, '#fc8d59'],  # Orange-red (negative)
+        [0.45, '#fee08b'],  # Light orange (slightly negative)
+        [0.5, '#1a9850'],  # Green (zero/neutral - ideal)
+        [0.55, '#91cf60'],  # Light green (slightly positive)
+        [0.7, '#d9ef8b'],  # Yellow-green (positive)
+        [0.85, '#ffffbf'],  # Light yellow (more positive)
+        [1.0, '#ffff00']  # Bright yellow (very positive)
+    ]
+
+    timeslot_labels = [str(10 + i * 5) for i in range(n)]
+    battery_labels = [str(300 + 100 * i) for i in range(n)]
+
+    fig_qual = go.Figure(data=go.Heatmap(
+        z=qual_values,
+        x=timeslot_labels,
+        y=battery_labels,
+        text=text_qual,
+        texttemplate='%{text}',
+        colorscale=custom_qual_colorscale,
+        zmin=-1,
+        zmax=0,
+        zauto=False,
+        colorbar=dict(
+            title="Quality value vs. max.",
+            ticksuffix=" ",
+        ),
+        xgap=1,
+        ygap=1
+    ))
+
+    fig_qual.update_layout(
+        title=f"MCTS Quality evaluation",
+        xaxis_title="timeslots",
+        yaxis_title="maximum Battery in mAh",
+        height=400,
+        width=1400,
+        xaxis=dict(side='top'),
+    )
+
+    fig_battery = go.Figure(data=go.Heatmap(
+        z=battery_values,
+        x=timeslot_labels,
+        y=battery_labels,
+        text=text_battery,
+        texttemplate='%{text}',
+        colorscale=custom_battery_colorscale,
+        zmid=0,
+        colorbar=dict(
+            title="Battery Δ<br>(vs neutral)",
+            ticksuffix=" ",
+        ),
+        xgap=1,
+        ygap=1
+    ))
+
+    fig_battery.update_layout(
+        title=f"MCTS Energy Neutrality Evaluation",
+        xaxis_title="timeslots",
+        yaxis_title="maximum Battery in mAh",
+        height=400,
+        width=1400,
+        xaxis=dict(side='top'),
+    )
+
+    fig_qual.show()
+    fig_battery.show()
+
+
+create_battery_calendar_heatmap()
+create_quality_calendar_heatmap()

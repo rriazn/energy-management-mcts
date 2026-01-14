@@ -6,11 +6,11 @@ import requests
 import requests_cache
 from retry_requests import retry
 
-# ---- Inputs ----
-latitude = 35.0  # degrees
-longitude = -120.0  # degrees
-tz = 'US/Pacific'  # timezone of the location
-surface_tilt = 30  # degrees
+
+latitude = 35.0
+longitude = -120.0
+tz = 'UTC'
+surface_tilt = 30
 surface_azimuth = 180  # 180° = south-facing
 module_efficiency = 0.18
 system_area = 1.0 * 1.0
@@ -64,7 +64,7 @@ def get_irradiance_predictions(timeslots):
     return irr_timeslots
 
 
-def get_energy_predictions(timeslots: int):
+def get_energy_predictions(timeslots):
     periods = int(24 * 60 / timeslots)
     time = datetime.strptime("16:00", "%H:%M")
     energy_harvesting_values = []
@@ -88,6 +88,30 @@ def get_energy_predictions(timeslots: int):
     return energy_harvesting_values
 
 
+def get_energy_predictions_clearsky(timeslots, date):
+    periods = int(24 * 60 / timeslots)
+    time = datetime.strptime("00:00", "%H:%M")
+    energy_harvesting_values = []
+    for i in range(timeslots):
+        times = pd.date_range(date + " " + datetime.strftime(time, "%H:%M"), periods=periods, freq='1min', tz=tz)
+        solar_position = location.get_solarposition(times)
+        clearsky = location.get_clearsky(times)
+        poa = pvlib.irradiance.get_total_irradiance(
+            surface_tilt,
+            surface_azimuth,
+            solar_position['zenith'],
+            solar_position['azimuth'],
+            clearsky['dni'],
+            clearsky['ghi'],
+            clearsky['dhi']
+        )
+        power_dc = poa['poa_global'] * system_area * module_efficiency  # watts
+        energy_Wh = power_dc.sum() / 60
+        energy_harvesting_values.append(energy_Wh)
+        time = time + timedelta(minutes=periods)
+    return energy_harvesting_values
+
+
 def prediciton_to_slots(predictions, slot_size_Wh):
     return list(map(lambda val: round(val / slot_size_Wh), predictions))
 
@@ -95,4 +119,4 @@ def prediciton_to_slots(predictions, slot_size_Wh):
 # prediction = get_predictions(24)
 # print(prediciton_to_slots(prediction, 5))
 
-print(get_energy_predictions(48))
+#print(get_energy_predictions_clearsky(48, datetime.today().strftime("%Y-%m-%d")))
