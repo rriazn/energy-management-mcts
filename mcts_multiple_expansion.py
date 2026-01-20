@@ -18,7 +18,7 @@ class Edge:
 class Node:
     def __init__(self, battery, timeslot, parent=None):
         self.battery = battery
-        self.timeslot = timeslot  # timeslot 1 meaning from 0 to 1
+        self.timeslot = timeslot    # if timeslot = n, it is the timeslot after the n-th task
         self.parents = [parent]
         self.children = []
         self.visits = 0
@@ -37,9 +37,12 @@ class Node:
 
     def expand(self):
         edges = []
+
+        # loop until there are no more children to be added
         while True:
             next_task, new_battery = None, 0
             new_child = False
+
             # look for unexplored children
             while len(self.possible_tasks) != 0:
                 next_task = self.possible_tasks.pop()
@@ -64,107 +67,187 @@ class Node:
             edges.append(edge)
         return edges
 
-    def get_best_move(self, c=math.sqrt(2)):
-        if self.battery == B_max:
-            return max(self.children, key=lambda edge: edge.task["quality"])
+    def get_best_move(self):
+        # UCT, but without exploration parameter
         return max(self.children, key=lambda edge: (edge.child.win_quality / edge.child.visits))
-        # + c * math.sqrt(math.log(self.visits) / edge.child.visits))
-        # return max(self.children, key=lambda edge: (edge.child.win_quality / edge.child.visits) + c *
-        #                                           self.visits / (1 + edge.child.visits))
 
     def simulate(self, qual):
+        # simulation state
         sim_timeslot = self.timeslot
         sim_state_battery = self.battery
         sim_state_quality = qual
         sim_path = []
-        while True:
-            if sim_timeslot == K:
-                return (
-                    sim_state_quality, sim_path, sim_state_quality,
-                    sim_state_battery) if sim_state_battery >= B_start else \
-                    (penalized_quality(sim_state_quality, sim_state_battery), sim_path, sim_state_quality,
-                     sim_state_battery)
 
+        # simulate until reaching leaf
+        while True:
+            # full path found
+            if sim_timeslot == K:
+                return penalized_quality(sim_state_quality, sim_state_battery)
+
+            # which tasks can be assigned without violating B >= B_min
             available_tasks = list(filter(lambda t: sim_state_battery + E[sim_timeslot] -
                                                         t["cost"] >= B_min, Tasks))
 
+            # leaf node without full path -> return 0
             if not available_tasks:
                 return 0, [], 0, 0
             chosen_task = random.choice(available_tasks)
+
+            # force it to take highest quality task, that does not cause the quality to go below B_start
+            # in order to use battery properly
             if sim_state_battery == B_max:
                 chosen_task = max(list(filter(
                     lambda t: sim_state_battery + E[sim_timeslot] - t["cost"] >= B_start, available_tasks
                 )), key=lambda task: task["quality"])
 
+            # update sim state with chosen task
             sim_timeslot += 1
             sim_state_battery = min(B_max, sim_state_battery - chosen_task["cost"] + E[sim_timeslot - 1])
             sim_state_quality += chosen_task["quality"]
-            sim_path.append(chosen_task)
+            sim_path.append(chosen_task["id"])
 
 
 def backpropagate(summed_up_result, path, edges_count):
+    # apply simulation values to all tasks in selection path, update visit count with number of simulations
     for node in path:
         node.visits += edges_count
         node.win_quality += summed_up_result
 
 
-def mcts(root, iterations=500):
-    global nodes
+def upgrade(path, end_battery):
+    # index to get certain task by their id
+    task_index = {task["id"]: i for i, task in enumerate(Tasks)}
+
+    # calculate battery value in each timeslot for current solution
+    battery_vals = [B_start]
+    for i in range(K):
+        battery_vals.append(battery_vals[-1] + E[i] - Tasks[task_index[path[i]]]["cost"])
+
+    # monitor battery, so it never goes below B_min
+    smallest_battery = max(end_battery, battery_vals[-1])
+    battery_at_timeslot = end_battery   # battery before executing task at timeslot i
+
+    # go backwards through solution and try to upgrade the tasks until it is not possible anymore
+    for i in range(K - 1, -1, -1):
+        old_task = Tasks[task_index[path[i]]]
+        best_task = None
+
+        # find highest quality task that satisfies: battery at timeslot >= B_min and B_end >= B_start
+        for j in range(task_index[path[i]]):
+            new_task = Tasks[j]
+            cost_diff = new_task["cost"] - old_task["cost"]
+            if end_battery - cost_diff >= B_start \
+                    and battery_at_timeslot - cost_diff >= B_min \
+                    and smallest_battery - cost_diff >= B_min:
+                best_task = new_task
+                break
+
+        # no better task found (but better tasks exist): stop upgrading
+        if best_task is None and old_task["id"] != Tasks[0]["id"]:
+            break
+        # no better task exist -> continue with next timeslot
+        elif old_task["id"] == Tasks[0]["id"]:
+            continue
+
+        # apply new better task
+        cost_diff = best_task["cost"] - old_task["cost"]
+        end_battery -= cost_diff
+        battery_at_timeslot -= cost_diff
+        smallest_battery -= cost_diff
+        smallest_battery = min(smallest_battery, battery_at_timeslot)
+
+        path[i] = best_task["id"]
+        battery_at_timeslot = battery_vals[i]
+
+    # recalculate quality
+    qual = 0
+    for i in path:
+        qual += Tasks[task_index[i]]["quality"]
+    return qual, path, end_battery
+
+
+def mcts(root, iterations):
+    global nodes, Tasks
+
+    # reset graph state
     nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
 
-    # save the best path explored by selection, expansion and simulation
+    # sort task by cost in descending order, eliminate all tasks that are dominated by another task
+    eliminate_dominated_tasks()
+
+    # reset possible tasks in root to account for sorted tasks
+    root.possible_tasks = root.get_possible_tasks()
+
+    # always save the best path explored by selection, expansion and simulation
     best_path = []
     best_quality = 0
     best_path_remaining_battery = 0
+
     for j in range(iterations):
         node = root
         result = []
 
-        # select until expand creates a new node
         # also memorize chosen path for backpropagation
         path = [node]
         task_path = []
         path_quality = 0
 
+        # select until expand creates at least one new node
         while len(result) == 0:
             # select, create path
             while not node.is_terminal() and node.is_fully_expanded():
                 best_move = node.get_best_move()
                 node = best_move.child
                 path.append(node)
-                task_path.append(best_move.task)
+                task_path.append(best_move.task["id"])
                 path_quality += best_move.task["quality"]
             # expand
             if not node.is_terminal():
                 # result is now a list of all newly created outgoing edges to newly created nodes
                 result = node.expand()
             else:
+                # selected until a leaf node
                 break
         if len(result) != 0:
+            # not a leaf node selected
+
+            # summed up simulation results to backpropagate
             summed_up_result = 0
+
+            # do simulation for each new child node
             for edge in result:
                 # simulate
                 node = edge.child
                 backpropagation_value, sim_path, sim_quality, sim_battery = node.simulate(
                     path_quality + edge.task["quality"])
+
+                # update best path, if selection and simulation path together are better
                 if backpropagation_value > best_quality and sim_battery >= B_start:
-                    best_path = task_path + [edge.task] + sim_path
+                    best_path = task_path + [edge.task["id"]] + sim_path
                     best_quality = sim_quality
                     best_path_remaining_battery = sim_battery
                 summed_up_result += backpropagation_value
                 node.visits += 1
                 node.win_quality += backpropagation_value
-
             # backpropagation
             backpropagate(summed_up_result, path, len(result))
         else:
+            # leaf node selected
+
             backpropagation_value, sim_path, sim_quality, sim_battery = node.simulate(path_quality)
+
+            # update best path, if selection and simulation path together are better
             if backpropagation_value > best_quality and sim_battery >= B_start:
                 best_path = task_path + [edge.task] + sim_path
                 best_quality = sim_quality
                 best_path_remaining_battery = sim_battery
+
+            # backpropagation
             backpropagate(backpropagation_value, path, 1)
 
+    # revisit path to use excess energy (optional, but uses energy budged better)
+    if len(best_path) != 0:
+        best_quality, best_path, best_path_remaining_battery = upgrade(best_path, best_path_remaining_battery)
     return root, best_path, best_quality, best_path_remaining_battery
 
 
@@ -178,319 +261,55 @@ def penalized_quality(quality, B_lvl):
     return quality - penalty
 
 
-Tasks = []
+def eliminate_dominated_tasks():
+    global Tasks
 
-Task_sets = [
-    [{'id': 1, 'cost': 2, 'quality': 3},
-     {'id': 3, 'cost': 4, 'quality': 5},
-     {'id': 4, 'cost': 3, 'quality': 4},
-     {'id': 2, 'cost': 1, 'quality': 2}],
+    # sort ascending by cost first for pruning logic
+    tasks_sorted = sorted(Tasks, key=lambda t: (t["cost"], -t["quality"]))
 
-    [{'id': 1, 'cost': 3, 'quality': 5},
-     {'id': 2, 'cost': 2, 'quality': 3},
-     {'id': 3, 'cost': 4, 'quality': 6},
-     {'id': 4, 'cost': 8, 'quality': 10},
-     {'id': 5, 'cost': 1, 'quality': 1}],
+    pruned = []
+    best_quality = 0
 
-    [{'id': 1, 'cost': 4, 'quality': 6},
-     {'id': 2, 'cost': 3, 'quality': 4},
-     {'id': 3, 'cost': 5, 'quality': 7},
-     {'id': 4, 'cost': 10, 'quality': 12},
-     {'id': 5, 'cost': 2, 'quality': 2},
-     {'id': 6, 'cost': 1, 'quality': 1}],
+    # Pareto pruning pass
+    for t in tasks_sorted:
+        if t["quality"] > best_quality:
+            pruned.append(t)
+            best_quality = t["quality"]
 
-    [{'id': 1, 'cost': 4, 'quality': 5},
-     {'id': 2, 'cost': 5, 'quality': 6},
-     {'id': 3, 'cost': 6, 'quality': 9},
-     {'id': 4, 'cost': 11, 'quality': 14},
-     {'id': 6, 'cost': 3, 'quality': 3},
-     {'id': 7, 'cost': 8, 'quality': 12},
-     {'id': 5, 'cost': 1, 'quality': 1}],
+    # return descending order by cost
+    Tasks = sorted(pruned, key=lambda t: t["cost"], reverse=True)
 
-    [{'id': 1, 'cost': 4, 'quality': 5},
-     {'id': 2, 'cost': 5, 'quality': 6},
-     {'id': 3, 'cost': 6, 'quality': 9},
-     {'id': 4, 'cost': 11, 'quality': 15},
-     {'id': 5, 'cost': 2, 'quality': 2},
-     {'id': 8, 'cost': 7, 'quality': 10},
-     {'id': 6, 'cost': 3, 'quality': 3},
-     {'id': 7, 'cost': 1, 'quality': 1}],
 
-    [{'id': 1, 'cost': 5, 'quality': 6},
-     {'id': 2, 'cost': 6, 'quality': 7},
-     {'id': 3, 'cost': 7, 'quality': 10},
-     {'id': 4, 'cost': 13, 'quality': 17},
-     {'id': 5, 'cost': 3, 'quality': 3},
-     {'id': 6, 'cost': 4, 'quality': 4},
-     {'id': 7, 'cost': 10, 'quality': 14},
-     {'id': 9, 'cost': 12, 'quality': 18},
-     {'id': 5, 'cost': 1, 'quality': 1}],
-    [
-        {'id': 1, 'cost': 6, 'quality': 7},
-        {'id': 2, 'cost': 7, 'quality': 8},
-        {'id': 3, 'cost': 8, 'quality': 11},
-        {'id': 4, 'cost': 15, 'quality': 19},
-        {'id': 5, 'cost': 3, 'quality': 3},
-        {'id': 6, 'cost': 4, 'quality': 4},
-        {'id': 7, 'cost': 11, 'quality': 15},
-        {'id': 8, 'cost': 9, 'quality': 12},
-        {'id': 9, 'cost': 13, 'quality': 19},
-        {'id': 10, 'cost': 1, 'quality': 1},
-    ],
-    [
-        {'id': 1, 'cost': 7, 'quality': 8},
-        {'id': 2, 'cost': 8, 'quality': 9},
-        {'id': 3, 'cost': 9, 'quality': 12},
-        {'id': 4, 'cost': 17, 'quality': 21},
-        {'id': 5, 'cost': 4, 'quality': 4},
-        {'id': 6, 'cost': 5, 'quality': 5},
-        {'id': 7, 'cost': 12, 'quality': 17},
-        {'id': 8, 'cost': 10, 'quality': 13},
-        {'id': 9, 'cost': 14, 'quality': 21},
-        {'id': 10, 'cost': 6, 'quality': 7},
-        {'id': 11, 'cost': 1, 'quality': 1},
-    ],
-    [
-        {'id': 1, 'cost': 8, 'quality': 9},
-        {'id': 2, 'cost': 9, 'quality': 10},
-        {'id': 3, 'cost': 10, 'quality': 13},
-        {'id': 4, 'cost': 19, 'quality': 23},
-        {'id': 5, 'cost': 27, 'quality': 32},
-        {'id': 6, 'cost': 6, 'quality': 7},
-        {'id': 7, 'cost': 13, 'quality': 18},
-        {'id': 8, 'cost': 25, 'quality': 29},
-        {'id': 9, 'cost': 15, 'quality': 22},
-        {'id': 10, 'cost': 7, 'quality': 8},
-        {'id': 11, 'cost': 2, 'quality': 2},
-        {'id': 12, 'cost': 1, 'quality': 1},
-    ],
-    [
-        {'id': 1, 'cost': 9, 'quality': 10},
-        {'id': 2, 'cost': 10, 'quality': 12},
-        {'id': 3, 'cost': 12, 'quality': 15},
-        {'id': 4, 'cost': 21, 'quality': 26},
-        {'id': 5, 'cost': 6, 'quality': 6},
-        {'id': 6, 'cost': 7, 'quality': 8},
-        {'id': 7, 'cost': 15, 'quality': 20},
-        {'id': 8, 'cost': 13, 'quality': 16},
-        {'id': 9, 'cost': 17, 'quality': 24},
-        {'id': 10, 'cost': 8, 'quality': 9},
-        {'id': 11, 'cost': 3, 'quality': 3},
-        {'id': 12, 'cost': 4, 'quality': 4},
-        {'id': 13, 'cost': 1, 'quality': 1},
-    ],
-    [
-        {'id': 1, 'cost': 10, 'quality': 11},
-        {'id': 2, 'cost': 12, 'quality': 13},
-        {'id': 3, 'cost': 13, 'quality': 17},
-        {'id': 4, 'cost': 24, 'quality': 30},
-        {'id': 5, 'cost': 7, 'quality': 7},
-        {'id': 6, 'cost': 8, 'quality': 9},
-        {'id': 7, 'cost': 17, 'quality': 22},
-        {'id': 8, 'cost': 14, 'quality': 18},
-        {'id': 9, 'cost': 19, 'quality': 27},
-        {'id': 10, 'cost': 9, 'quality': 10},
-        {'id': 11, 'cost': 4, 'quality': 4},
-        {'id': 12, 'cost': 5, 'quality': 5},
-        {'id': 13, 'cost': 2, 'quality': 2},
-        {'id': 14, 'cost': 1, 'quality': 1},
-    ],
-    [
-        {'id': 1, 'cost': 11, 'quality': 13},
-        {'id': 2, 'cost': 13, 'quality': 15},
-        {'id': 3, 'cost': 15, 'quality': 19},
-        {'id': 4, 'cost': 27, 'quality': 33},
-        {'id': 5, 'cost': 8, 'quality': 8},
-        {'id': 6, 'cost': 9, 'quality': 11},
-        {'id': 7, 'cost': 19, 'quality': 24},
-        {'id': 8, 'cost': 16, 'quality': 20},
-        {'id': 9, 'cost': 21, 'quality': 29},
-        {'id': 10, 'cost': 11, 'quality': 12},
-        {'id': 11, 'cost': 5, 'quality': 5},
-        {'id': 12, 'cost': 6, 'quality': 6},
-        {'id': 13, 'cost': 3, 'quality': 3},
-        {'id': 14, 'cost': 4, 'quality': 4},
-        {'id': 15, 'cost': 1, 'quality': 1},
-    ],
-    [
-        {'id': 1, 'cost': 13, 'quality': 15},
-        {'id': 2, 'cost': 15, 'quality': 17},
-        {'id': 3, 'cost': 17, 'quality': 21},
-        {'id': 4, 'cost': 30, 'quality': 37},
-        {'id': 5, 'cost': 9, 'quality': 9},
-        {'id': 6, 'cost': 11, 'quality': 12},
-        {'id': 7, 'cost': 21, 'quality': 26},
-        {'id': 8, 'cost': 18, 'quality': 23},
-        {'id': 9, 'cost': 24, 'quality': 32},
-        {'id': 10, 'cost': 12, 'quality': 14},
-        {'id': 11, 'cost': 6, 'quality': 6},
-        {'id': 12, 'cost': 7, 'quality': 7},
-        {'id': 13, 'cost': 4, 'quality': 4},
-        {'id': 14, 'cost': 5, 'quality': 5},
-        {'id': 15, 'cost': 2, 'quality': 2},
-        {'id': 16, 'cost': 1, 'quality': 1},
-    ],
-    [
-        {'id': 1, 'cost': 14, 'quality': 16},
-        {'id': 2, 'cost': 16, 'quality': 18},
-        {'id': 3, 'cost': 18, 'quality': 23},
-        {'id': 4, 'cost': 33, 'quality': 41},
-        {'id': 5, 'cost': 10, 'quality': 10},
-        {'id': 6, 'cost': 12, 'quality': 14},
-        {'id': 7, 'cost': 23, 'quality': 28},
-        {'id': 8, 'cost': 19, 'quality': 25},
-        {'id': 9, 'cost': 26, 'quality': 35},
-        {'id': 10, 'cost': 13, 'quality': 15},
-        {'id': 11, 'cost': 7, 'quality': 7},
-        {'id': 12, 'cost': 8, 'quality': 8},
-        {'id': 13, 'cost': 5, 'quality': 5},
-        {'id': 14, 'cost': 6, 'quality': 6},
-        {'id': 15, 'cost': 3, 'quality': 3},
-        {'id': 16, 'cost': 2, 'quality': 2},
-        {'id': 17, 'cost': 1, 'quality': 1},
-    ],
-    [
-        {'id': 1, 'cost': 15, 'quality': 18},
-        {'id': 2, 'cost': 18, 'quality': 20},
-        {'id': 3, 'cost': 20, 'quality': 25},
-        {'id': 4, 'cost': 36, 'quality': 45},
-        {'id': 5, 'cost': 11, 'quality': 11},
-        {'id': 6, 'cost': 14, 'quality': 15},
-        {'id': 7, 'cost': 25, 'quality': 30},
-        {'id': 8, 'cost': 21, 'quality': 27},
-        {'id': 9, 'cost': 28, 'quality': 38},
-        {'id': 10, 'cost': 15, 'quality': 17},
-        {'id': 11, 'cost': 8, 'quality': 8},
-        {'id': 12, 'cost': 9, 'quality': 9},
-        {'id': 13, 'cost': 6, 'quality': 6},
-        {'id': 14, 'cost': 7, 'quality': 7},
-        {'id': 15, 'cost': 4, 'quality': 4},
-        {'id': 16, 'cost': 3, 'quality': 3},
-        {'id': 17, 'cost': 2, 'quality': 2},
-        {'id': 18, 'cost': 1, 'quality': 1},
-    ],
-    [
-        {'id': 1, 'cost': 17, 'quality': 20},
-        {'id': 2, 'cost': 19, 'quality': 22},
-        {'id': 3, 'cost': 22, 'quality': 27},
-        {'id': 4, 'cost': 39, 'quality': 49},
-        {'id': 5, 'cost': 12, 'quality': 12},
-        {'id': 6, 'cost': 15, 'quality': 17},
-        {'id': 7, 'cost': 27, 'quality': 33},
-        {'id': 8, 'cost': 23, 'quality': 29},
-        {'id': 9, 'cost': 31, 'quality': 41},
-        {'id': 10, 'cost': 16, 'quality': 19},
-        {'id': 11, 'cost': 9, 'quality': 9},
-        {'id': 12, 'cost': 10, 'quality': 10},
-        {'id': 13, 'cost': 7, 'quality': 7},
-        {'id': 14, 'cost': 8, 'quality': 8},
-        {'id': 15, 'cost': 5, 'quality': 5},
-        {'id': 16, 'cost': 4, 'quality': 4},
-        {'id': 17, 'cost': 3, 'quality': 3},
-        {'id': 18, 'cost': 2, 'quality': 2},
-        {'id': 19, 'cost': 1, 'quality': 1},
-    ],
-    [
-        {'id': 1, 'cost': 18, 'quality': 22},
-        {'id': 2, 'cost': 21, 'quality': 24},
-        {'id': 3, 'cost': 24, 'quality': 29},
-        {'id': 4, 'cost': 42, 'quality': 53},
-        {'id': 5, 'cost': 13, 'quality': 13},
-        {'id': 6, 'cost': 17, 'quality': 18},
-        {'id': 7, 'cost': 29, 'quality': 35},
-        {'id': 8, 'cost': 25, 'quality': 31},
-        {'id': 9, 'cost': 33, 'quality': 44},
-        {'id': 10, 'cost': 17, 'quality': 20},
-        {'id': 11, 'cost': 10, 'quality': 10},
-        {'id': 12, 'cost': 11, 'quality': 11},
-        {'id': 13, 'cost': 8, 'quality': 8},
-        {'id': 14, 'cost': 9, 'quality': 9},
-        {'id': 15, 'cost': 6, 'quality': 6},
-        {'id': 16, 'cost': 5, 'quality': 5},
-        {'id': 17, 'cost': 4, 'quality': 4},
-        {'id': 18, 'cost': 3, 'quality': 3},
-        {'id': 19, 'cost': 2, 'quality': 2},
-        {'id': 20, 'cost': 1, 'quality': 1},
-    ],
-    [
-        {'id': 1, 'cost': 20, 'quality': 24},
-        {'id': 2, 'cost': 23, 'quality': 26},
-        {'id': 3, 'cost': 26, 'quality': 32},
-        {'id': 4, 'cost': 46, 'quality': 58},
-        {'id': 5, 'cost': 14, 'quality': 14},
-        {'id': 6, 'cost': 18, 'quality': 20},
-        {'id': 7, 'cost': 32, 'quality': 38},
-        {'id': 8, 'cost': 27, 'quality': 34},
-        {'id': 9, 'cost': 36, 'quality': 48},
-        {'id': 10, 'cost': 19, 'quality': 22},
-        {'id': 11, 'cost': 11, 'quality': 11},
-        {'id': 12, 'cost': 12, 'quality': 12},
-        {'id': 13, 'cost': 9, 'quality': 9},
-        {'id': 14, 'cost': 10, 'quality': 10},
-        {'id': 15, 'cost': 7, 'quality': 7},
-        {'id': 16, 'cost': 6, 'quality': 6},
-        {'id': 17, 'cost': 5, 'quality': 5},
-        {'id': 18, 'cost': 4, 'quality': 4},
-        {'id': 19, 'cost': 3, 'quality': 3},
-        {'id': 20, 'cost': 2, 'quality': 2},
-        {'id': 21, 'cost': 1, 'quality': 1},
-    ]
 
-]
-K = 24
 
-E_35 = [3, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 6, 6, 6, 6, 5, 5, 5, 4, 4, 3]
-E_40 = [3, 3, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5,
-        4, 4, 3]
-E_45 = [3, 3, 2, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 4, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6,
-        6, 6, 5, 5, 5, 4, 4, 3]
-E_50 = [3, 3,
-        2, 2, 2,
-        1, 1, 1, 1,
-        0, 0, 0, 0, 0, 0, 0, 0, 0,
-        1, 1, 1,
-        2, 2, 2,
-        3, 3, 3,
-        4, 4, 4,
-        5, 5, 5,
-        6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
-        5, 5, 5,
-        4, 4, 4,
-        3
-        ]
-E_b = [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 16, 24, 30, 33, 32, 29, 23, 14]
+# energy harvesting predicitons in 10mAh for 01. June 2026 in Greenwich, UK (Clearsky)
+# for the setup specified in energy_harvesting_prediction.py
+E = [5, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 5, 7, 9, 10, 11, 11, 10, 9, 7]
 
-E = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
+K = 24          # timeslots
 B_start = 30
 B_max = 50
 B_min = 10
-magnifier = B_max / 30
-E = list(map(lambda e: round(magnifier * e), E))
-nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
+
+nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)     # find nodes based on timeslot & battery
+
 Tasks = [
     {'id': 2, 'cost': 2,  'quality': 3},   # low-power sensing / sync
     {'id': 3, 'cost': 4,  'quality': 6},   # moderate task (fits early hours)
     {'id': 4, 'cost': 6,  'quality': 9},   # mid-day processing
     {'id': 5, 'cost': 9,  'quality': 13},  # heavy task (needs solar ramp-up)
     {'id': 6, 'cost': 12, 'quality': 18},  # peak-hour workload
-    {'id': 7, 'cost': 15, 'quality': 22} ,  # maximum-value task (solar peak)
-    {'id': 1, 'cost': 1,  'quality': 1}   # trivial background task
+    {'id': 1, 'cost': 1,  'quality': 1},   # trivial background task
+    {'id': 7, 'cost': 15, 'quality': 22}   # maximum-value task (solar peak)
 ]
-'''
-'''
-
-
-
-
 
 '''
-Tasks = Task_sets[1]
-
+# example usage:
 curr_node = Node(B_start, 0)
 res = mcts(curr_node, 10)
 quality = 0
 print(curr_node.win_quality)
-#visualize_tree(curr_node)
+
 
 while len(curr_node.children) != 0:
     move = curr_node.get_best_move()
@@ -500,14 +319,4 @@ while len(curr_node.children) != 0:
 
 print(curr_node.timeslot, curr_node.battery, quality)
 print(res[0], res[1], res[2], res[3], len(res[1]))
-
-
-Tasks = Task_sets[1]
-random_assignment_eval()
-
-
-eval_iter_timeslots()
 '''
-
-
-

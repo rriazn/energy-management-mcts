@@ -8,17 +8,17 @@ K = 24
 B_max = 50
 B_min = 10
 B_start = 30
-E = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
+E = [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 8, 12, 15, 17, 17, 15, 12, 8]
 
 
 Tasks = [{'id': 1, 'cost': 4, 'quality': 6},
-     {'id': 2, 'cost': 3, 'quality': 5},
+     {'id': 2, 'cost': 3, 'quality': 4},
      {'id': 3, 'cost': 5, 'quality': 7},
      {'id': 4, 'cost': 8, 'quality': 10},
-     {'id': 5, 'cost': 2, 'quality': 3},
+     {'id': 5, 'cost': 2, 'quality': 2},
      {'id': 6, 'cost': 1, 'quality': 1}]
 
-beam_width = 3* round(len(Tasks) / 3)
+beam_width = round(len(Tasks) / 3)
 
 nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
 
@@ -31,7 +31,7 @@ class Edge:
 
 
 class Node:
-    def __init__(self, battery_level, timeslot, parent, best_quality,):
+    def __init__(self, battery_level, timeslot, parent, best_quality):
         self.battery_level = battery_level
         self.timeslot = timeslot
         self.parents = [parent]
@@ -71,6 +71,7 @@ def expand(node: Node):
 
 def evaluate(node):
     best_children = []
+
     for edge in node.children:
         edge_val = edge.task["quality"] if edge.child.battery_level >= B_start else penalize(edge)
         if len(best_children) < beam_width:
@@ -83,8 +84,9 @@ def evaluate(node):
     return list(map(lambda x: x[0].child, best_children))
 
 
-def beam_search():
-    root = Node(B_start, 0, None, 0)
+def beam_search(root):
+    global nodes
+    nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
     last_timeslot_nodes = [root]
     assert beam_width <= len(Tasks)
     for i in range(K):
@@ -138,14 +140,17 @@ def visualize_tree(root, max_nodes=1000):
             net.add_edge(node_id, child_id, label=label_text, color=color, title=f"Quality={edge.task['quality']}")
     net.write_html("beam_search_tree.html")
 
-
+'''
 ltn, rt = beam_search()
 for node in ltn:
     print("Node: ", node.battery_level, "; Quality: ", node.best_quality)
 
 node = ltn[2]
-while len(node.parents) != 0:
-    print(node.best_parent.task["id"])
+i = 24
+while node.parents[0] is not None:
+    print(i, node.best_parent.task["id"])
     node = node.best_parent.parent
+    i -= 1
 
 visualize_tree(rt)
+'''

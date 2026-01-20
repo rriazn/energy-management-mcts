@@ -7,13 +7,14 @@ import requests_cache
 from retry_requests import retry
 
 
-latitude = 35.0
-longitude = -120.0
+latitude = 51.477
+longitude = 0.0        # Greenwich, UK
 tz = 'UTC'
 surface_tilt = 30
 surface_azimuth = 180  # 180° = south-facing
-module_efficiency = 0.18
-system_area = 1.0 * 1.0
+module_efficiency = 0.11
+system_area = 0.09 * 0.04
+battery_voltage = 3.3   # example, max. for MICAz WIRELESS MEASUREMENT SYSTEM
 
 location = pvlib.location.Location(latitude, longitude, tz=tz)
 today = date.today().strftime("%Y-%m-%d")
@@ -90,7 +91,7 @@ def get_energy_predictions(timeslots):
 
 def get_energy_predictions_clearsky(timeslots, date):
     periods = int(24 * 60 / timeslots)
-    time = datetime.strptime("00:00", "%H:%M")
+    time = datetime.strptime("16:00", "%H:%M")
     energy_harvesting_values = []
     for i in range(timeslots):
         times = pd.date_range(date + " " + datetime.strftime(time, "%H:%M"), periods=periods, freq='1min', tz=tz)
@@ -105,9 +106,10 @@ def get_energy_predictions_clearsky(timeslots, date):
             clearsky['ghi'],
             clearsky['dhi']
         )
+
         power_dc = poa['poa_global'] * system_area * module_efficiency  # watts
         energy_Wh = power_dc.sum() / 60
-        energy_harvesting_values.append(energy_Wh)
+        energy_harvesting_values.append(energy_Wh * 1000 / battery_voltage)
         time = time + timedelta(minutes=periods)
     return energy_harvesting_values
 
@@ -116,7 +118,24 @@ def prediciton_to_slots(predictions, slot_size_Wh):
     return list(map(lambda val: round(val / slot_size_Wh), predictions))
 
 
-# prediction = get_predictions(24)
-# print(prediciton_to_slots(prediction, 5))
+def avg_monthly_firstday_energy(year):
+    timeslots = 24
+    monthly_energies = []
 
-#print(get_energy_predictions_clearsky(48, datetime.today().strftime("%Y-%m-%d")))
+    for month in range(1, 13):
+        d = date(year, month, 1).strftime("%Y-%m-%d")
+        energy = get_energy_predictions_clearsky(timeslots, d)
+        monthly_energies.append(sum(energy) / len(energy))
+
+    # Print results
+    print(f"Average incoming energy per hour (Wh) for {year} (1st of each month):")
+    for m, val in enumerate(monthly_energies):
+        print(float(val))
+
+
+
+#prediction = get_energy_predictions(24)
+#print(prediciton_to_slots(prediction, 5))
+
+print(list(map(lambda p: round(p / 10), get_energy_predictions_clearsky(24, date(2026, 6, 1).strftime("%Y-%m-%d")))))
+#avg_monthly_firstday_energy(2026)

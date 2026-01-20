@@ -21,7 +21,7 @@ typedef struct task {
     int quality;
 } task_t;
 
-static const task_t tasks[] = {
+static task_t tasks[] = {
     {.id = 1, .cost = 3, .quality = 5},
     {.id = 2, .cost = 2, .quality = 3},
     {.id = 3, .cost = 4, .quality = 6},
@@ -159,7 +159,7 @@ static int simulate(int timeslot, int battery_lvl, int qual, int res[K], int *si
         if(*sim_battery > B_MAX) {
             *sim_battery = B_MAX;
         }
-        res[sim_timeslot] = tasks[chosen_task_idx].id;
+        res[sim_timeslot] = chosen_task_idx;
         sim_timeslot += 1;
     }
 }
@@ -169,6 +169,49 @@ static void backpropagate(int result, int path[K + 1], int path_len, int edges_c
         visits[i][path[i] - B_MIN] += edges_count;
         qualities[i][path[i] - B_MIN] += result;
     }
+}
+
+static int upgrade(int path[K], int *end_battery) {
+    int battery_end = *end_battery;
+    int battery_vals[K + 1] = { 0 };
+    battery_vals[0] = B_START;
+    for(int i = 1; i < K + 1; i++) {
+        battery_vals[i] = battery_vals[i - 1] + E[i - 1] - tasks[path[i - 1]].cost;
+    }
+    int smallest_battery = battery_vals[K];
+    int battery_at_timeslot = battery_vals[K];
+    for(int i = K - 1; i >= 0; i--) {
+        int old_task_idx = path[i];
+        int best_task_idx = -1;
+        for(int j = old_task_idx; j >= 0; j--) {
+            int cost_diff = tasks[j].cost - tasks[old_task_idx].cost;
+            if(battery_end - cost_diff >= B_START && battery_at_timeslot - cost_diff >= B_MIN && smallest_battery - cost_diff >= B_MIN) {
+                best_task_idx = j;
+            } else {
+                break;
+            }
+        }
+        if(best_task_idx == -1 && old_task_idx != 0) {
+            break;
+        } else if(old_task_idx != 0) {
+            continue;
+        }
+        int cost_diff = tasks[best_task_idx].cost - tasks[old_task_idx].cost;
+        battery_end -= cost_diff;
+        battery_at_timeslot -= cost_diff;
+        smallest_battery -= cost_diff;
+        if(battery_at_timeslot < smallest_battery) {
+            smallest_battery = battery_at_timeslot;
+        }
+        path[i] = best_task_idx;
+        battery_at_timeslot = battery_vals[i];
+    }
+    int qual = 0;
+    for(int i = 0; i < K; i++) {
+        qual += tasks[path[i]].quality;
+    }
+    *end_battery = battery_end;
+    return qual;
 }
 
 static int mcts(int root_timeslot, int root_battery, int iterations, int best_path[K], int *best_solution_battery) {
@@ -182,6 +225,7 @@ static int mcts(int root_timeslot, int root_battery, int iterations, int best_pa
         int path_len = 1;
 
         int task_path[K + 1] = { 0 };
+        memset(task_path, -1, sizeof(task_path));
         int path_qual = 0;
 
         bool result[NUM_TASKS] = { false };
@@ -196,7 +240,7 @@ static int mcts(int root_timeslot, int root_battery, int iterations, int best_pa
                 }
                 timeslot++;
                 path[path_len] = battery_lvl;
-                task_path[path_len - 1] = tasks[best_move].id;
+                task_path[path_len - 1] = best_move;
                 path_len++;
                 path_qual += tasks[best_move].quality;
             }
@@ -220,6 +264,7 @@ static int mcts(int root_timeslot, int root_battery, int iterations, int best_pa
                         new_battery = B_MAX;
                     }
                     int res[K] = { 0 };
+                    memset(res, -1, sizeof(res));
                     int sim_battery = 0;
                     int sim_quality = simulate(timeslot + 1, new_battery, path_qual + tasks[j].quality, res, &sim_battery);
                     summed_up_res += sim_quality;
@@ -228,13 +273,13 @@ static int mcts(int root_timeslot, int root_battery, int iterations, int best_pa
                         *best_solution_battery = sim_battery;
                         // concatenate paths to get full path
                         for(int k = 0; k < K; k++) {
-                            if(task_path[k] != 0) {
+                            if(task_path[k] != -1) {
                                 best_path[k] = task_path[k];
                             } else {
                                 best_path[k] = res[k];
                             }
                         }
-                        best_path[timeslot] = tasks[j].id;
+                        best_path[timeslot] = j;
                     }
                     visits[timeslot + 1][new_battery - B_MIN] += 1;
                     qualities[timeslot + 1][new_battery - B_MIN] += sim_quality;
@@ -244,13 +289,14 @@ static int mcts(int root_timeslot, int root_battery, int iterations, int best_pa
         } else {
             // Terminal node reached during selection
             int res[K] = { 0 };
+            memset(res, -1, sizeof(res));
             int sim_battery = 0;
             int sim_quality = simulate(timeslot, battery_lvl, path_qual, res, &sim_battery);
             if(sim_quality > best_quality && sim_battery >= B_START) {
                 best_quality = sim_quality;
                 *best_solution_battery = sim_battery;
                 for(int k = 0; k < K; k++) {
-                    if(task_path[k] != 0) {
+                    if(task_path[k] != -1) {
                         best_path[k] = task_path[k];
                     } else {
                         best_path[k] = res[k];
@@ -260,21 +306,31 @@ static int mcts(int root_timeslot, int root_battery, int iterations, int best_pa
             backpropagate(sim_quality, path, path_len, 1);
         }
     }
+    best_quality = upgrade(best_path, best_solution_battery);
     return best_quality;
+}
+
+int comp(const void *a, const void *b) {
+    const task_t *ta = a;
+    const task_t *tb = b;
+
+    return tb->quality - ta->quality;   // descending order
 }
 
 
 int main(int argc, char **argv) {
     srand(time(NULL));
+    qsort(tasks, NUM_TASKS, sizeof(task_t), comp);
     int best_path[K] = { 0 };
+    memset(best_path, -1, sizeof(best_path));
     create_node(0, B_START, -1);
     int best_solution_battery;
     int ret = mcts(0, 20, 10, best_path, &best_solution_battery);
-    int q = 0;
     printf("%d\n", ret);
+    int q = 0;
     for(int i = 0; i < K; i++) {
         printf("%d\n", best_path[i]);
-        q += tasks[best_path[i] - 1].quality;
+        q += tasks[best_path[i]].quality;
     }
     printf("%d %d\n", best_solution_battery, q);    
     return 0;
