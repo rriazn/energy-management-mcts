@@ -109,8 +109,23 @@ def get_energy_predictions_clearsky(timeslots, date):
 
         power_dc = poa['poa_global'] * system_area * module_efficiency  # watts
         energy_Wh = power_dc.sum() / 60
-        energy_harvesting_values.append(energy_Wh * 1000 / battery_voltage)
+        energy_harvesting_values.append(energy_Wh * 1000 / battery_voltage) # mAh
         time = time + timedelta(minutes=periods)
+    return energy_harvesting_values
+
+
+def get_energy_from_pvgis(lines):
+    energy_harvesting_values = []
+
+    for line in lines:
+        parts = line.strip().split(",")
+        ghi = float(parts[1])  # G(h) in W/m²
+
+        energy_wh = ghi * system_area * module_efficiency
+        charge_mah = energy_wh * 1000 / battery_voltage
+
+        energy_harvesting_values.append(charge_mah)
+
     return energy_harvesting_values
 
 
@@ -136,6 +151,37 @@ def avg_monthly_firstday_energy(year):
 
 #prediction = get_energy_predictions(24)
 #print(prediciton_to_slots(prediction, 5))
+#energy_vals = list(map(lambda p: round(p), get_energy_predictions_clearsky(24, date(2023, 7, 1).strftime("%Y-%m-%d"))))
+lines = [
+    "20230701:0110,0.0,0.0,16.72,4.28,0.0",
+    "20230701:0210,0.0,0.0,16.69,4.14,0.0",
+    "20230701:0310,0.0,0.0,16.65,4.0,0.0",
+    "20230701:0410,4.53,2.11,16.57,4.0,0.0",
+    "20230701:0510,30.77,10.18,16.44,4.21,0.0",
+    "20230701:0610,96.02,19.0,16.57,4.0,0.0",
+    "20230701:0710,226.45,28.24,17.29,4.55,0.0",
+    "20230701:0810,279.8,37.55,17.73,4.69,0.0",
+    "20230701:0910,331.97,46.47,18.48,5.03,0.0",
+    "20230701:1010,140.0,54.31,18.74,5.24,0.0",
+    "20230701:1110,583.33,59.88,18.57,5.1,0.0",
+    "20230701:1210,675.7,61.6,18.92,5.45,0.0",
+    "20230701:1310,344.3,58.8,18.93,5.45,0.0",
+    "20230701:1410,405.9,52.53,19.08,5.31,0.0",
+    "20230701:1510,368.63,44.34,19.51,5.17,0.0",
+    "20230701:1610,403.92,35.27,19.7,5.03,0.0",
+    "20230701:1710,220.77,25.94,19.67,4.69,0.0",
+    "20230701:1810,99.26,16.78,19.45,3.86,0.0",
+    "20230701:1910,42.54,8.11,19.1,3.93,0.0",
+    "20230701:2010,0.0,0.0,18.42,3.79,0.0",
+    "20230701:2110,0.0,0.0,17.73,3.45,0.0",
+    "20230701:2210,0.0,0.0,17.07,3.24,0.0",
+    "20230701:2310,0.0,0.0,16.31,3.1,0.0",
+    "20230702:0010,0.0,0.0,15.81,3.17,0.0",
 
-print(list(map(lambda p: round(p / 10), get_energy_predictions_clearsky(24, date(2026, 6, 1).strftime("%Y-%m-%d")))))
+
+
+]
+#energy_vals = get_energy_from_pvgis(lines)
+#for v in energy_vals:
+    #print(round(v))
 #avg_monthly_firstday_energy(2026)
