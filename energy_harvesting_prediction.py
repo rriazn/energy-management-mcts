@@ -1,3 +1,4 @@
+import numpy as np
 import pvlib
 import pandas as pd
 from datetime import date, datetime, timedelta
@@ -7,6 +8,7 @@ import requests_cache
 from retry_requests import retry
 
 
+
 latitude = 51.477
 longitude = 0.0        # Greenwich, UK
 tz = 'UTC'
@@ -14,7 +16,7 @@ surface_tilt = 30
 surface_azimuth = 180  # 180° = south-facing
 module_efficiency = 0.11
 system_area = 0.09 * 0.04
-battery_voltage = 3.3   # example, max. for MICAz WIRELESS MEASUREMENT SYSTEM
+battery_voltage = 3.3
 
 location = pvlib.location.Location(latitude, longitude, tz=tz)
 today = date.today().strftime("%Y-%m-%d")
@@ -52,7 +54,6 @@ def get_irradiance_predictions(timeslots):
     hours = 0
     for i in range(timeslots):
         fraction = hours - int(hours)
-
         # interpolate values
         irr_timeslots.append({
                 "ghi": float(fraction * irr_25h[int(hours + 1)][0] + (1 - fraction) * irr_25h[int(hours)][0]),
@@ -63,6 +64,66 @@ def get_irradiance_predictions(timeslots):
 
         hours += timeslot_fraction
     return irr_timeslots
+
+
+def get_wind_energy_predictions(timeslots,
+                                date="2023-06-15",
+                                rotor_diameter=0.5,     # meters
+                                cp=0.5,                 # power coefficient
+                                air_density=1.225,      # kg/m³
+                                cut_in=0.0,             # m/s
+                                rated_speed=12,       # m/s
+                                cut_out=100.0):          # m/s
+    url = "https://archive-api.open-meteo.com/v1/archive"
+    params = {
+        "latitude": latitude,
+        "longitude": longitude,
+        "start_date": date,
+        "end_date": date,
+        "hourly": "wind_speed_10m",
+        "timezone": "Europe/Berlin"
+    }
+
+    response = requests.get(url, params=params)
+    data = response.json()
+    wind_speeds = np.array(data["hourly"]["wind_speed_10m"])  # 24 values
+    #print(wind_speeds, len(wind_speeds))
+
+    A = np.pi * (rotor_diameter / 2) ** 2 # turbine swept area
+
+    power_hourly = []
+    for v in wind_speeds:
+        if v < cut_in or v > cut_out:
+            P = 0
+        elif v <= rated_speed:
+            P = 0.5 * air_density * A * cp * v**3
+        else:
+            # constant rated power beyond rated speed
+            P = 0.5 * air_density * A * cp * rated_speed**3
+        power_hourly.append(P)
+
+    power_hourly = np.array(power_hourly) # watts
+
+    timeslot_fraction = 24 / timeslots
+    hours = 0
+    energy_timeslots = []
+    # interpolate to timeslots
+    for _ in range(timeslots):
+        fraction = hours - int(hours)
+
+        P_interp = (
+            fraction * power_hourly[min(int(hours + 1), 23)]
+            + (1 - fraction) * power_hourly[int(hours)]
+        )
+
+        # Energy = Power * slot time
+        slot_hours = timeslot_fraction
+        energy_Wh = P_interp * slot_hours
+
+        energy_timeslots.append(float(energy_Wh))
+        hours += timeslot_fraction
+
+    return energy_timeslots
 
 
 def get_energy_predictions(timeslots):
@@ -117,9 +178,8 @@ def get_energy_predictions_clearsky(timeslots, date):
 def get_energy_from_pvgis(lines):
     energy_harvesting_values = []
 
-    for line in lines:
-        parts = line.strip().split(",")
-        ghi = float(parts[1])  # G(h) in W/m²
+    for index, row in lines.iterrows():
+        ghi = float(row["G(i)"])  # G(h) in W/m²
 
         energy_wh = ghi * system_area * module_efficiency
         charge_mah = energy_wh * 1000 / battery_voltage
@@ -127,6 +187,13 @@ def get_energy_from_pvgis(lines):
         energy_harvesting_values.append(charge_mah)
 
     return energy_harvesting_values
+
+
+def get_energy_for_day(day):
+    assert day.year == 2023, "year has to be 2023"
+    end_time = day + timedelta(hours=24)
+    result = df[(df['datetime'] >= day) & (df['datetime'] < end_time)]
+    return get_energy_from_pvgis(result)
 
 
 def prediciton_to_slots(predictions, slot_size_Wh):
@@ -151,37 +218,36 @@ def avg_monthly_firstday_energy(year):
 
 #prediction = get_energy_predictions(24)
 #print(prediciton_to_slots(prediction, 5))
-#energy_vals = list(map(lambda p: round(p), get_energy_predictions_clearsky(24, date(2023, 7, 1).strftime("%Y-%m-%d"))))
-lines = [
-    "20230701:0110,0.0,0.0,16.72,4.28,0.0",
-    "20230701:0210,0.0,0.0,16.69,4.14,0.0",
-    "20230701:0310,0.0,0.0,16.65,4.0,0.0",
-    "20230701:0410,4.53,2.11,16.57,4.0,0.0",
-    "20230701:0510,30.77,10.18,16.44,4.21,0.0",
-    "20230701:0610,96.02,19.0,16.57,4.0,0.0",
-    "20230701:0710,226.45,28.24,17.29,4.55,0.0",
-    "20230701:0810,279.8,37.55,17.73,4.69,0.0",
-    "20230701:0910,331.97,46.47,18.48,5.03,0.0",
-    "20230701:1010,140.0,54.31,18.74,5.24,0.0",
-    "20230701:1110,583.33,59.88,18.57,5.1,0.0",
-    "20230701:1210,675.7,61.6,18.92,5.45,0.0",
-    "20230701:1310,344.3,58.8,18.93,5.45,0.0",
-    "20230701:1410,405.9,52.53,19.08,5.31,0.0",
-    "20230701:1510,368.63,44.34,19.51,5.17,0.0",
-    "20230701:1610,403.92,35.27,19.7,5.03,0.0",
-    "20230701:1710,220.77,25.94,19.67,4.69,0.0",
-    "20230701:1810,99.26,16.78,19.45,3.86,0.0",
-    "20230701:1910,42.54,8.11,19.1,3.93,0.0",
-    "20230701:2010,0.0,0.0,18.42,3.79,0.0",
-    "20230701:2110,0.0,0.0,17.73,3.45,0.0",
-    "20230701:2210,0.0,0.0,17.07,3.24,0.0",
-    "20230701:2310,0.0,0.0,16.31,3.1,0.0",
-    "20230702:0010,0.0,0.0,15.81,3.17,0.0",
+K = 24
+#energy_vals = list(map(lambda p: round(round(p / (10 * (24 / K)))), get_energy_predictions_clearsky(K, date(2023, 4, 1).strftime("%Y-%m-%d"))))
+#print(energy_vals)
 
+df = pd.read_csv("Timeseries_40.396_-3.611_SA3_1kWp_crystSi_11_30deg_0deg_2023_2023.csv", skiprows=8, nrows=8760)
+df["datetime"] = pd.to_datetime(df["time"], format="%Y%m%d:%H%M")
 
-
-]
+#print(list(map(lambda p: round(p), get_energy_for_day(datetime(2023, 1, 7, 16, 10)))))
+'''
+b = 0
+print(b)
+for xi in r:
+    b+=xi
+    print(b)
+'''
+print(list(map(lambda p: round(p / 10), get_energy_predictions_clearsky(24, date(2026, 4, 1).strftime("%Y-%m-%d")))))
 #energy_vals = get_energy_from_pvgis(lines)
 #for v in energy_vals:
-    #print(round(v))
+    #print(round(v / 20))
 #avg_monthly_firstday_energy(2026)
+# Parse the time column
+'''
+df['time'] = pd.to_datetime(df['time'], format='%Y%m%d:%H%M')
+
+# Group by year and month, then average the irradiance
+df['year_month'] = df['time'].dt.to_period('M')
+
+monthly_avg = df.groupby('year_month')['G(i)'].mean().reset_index()
+monthly_avg.columns = ['month', 'avg_irradiance']
+
+print(monthly_avg)
+'''
+print(list(map(lambda p: round(p/10), get_wind_energy_predictions(24))))

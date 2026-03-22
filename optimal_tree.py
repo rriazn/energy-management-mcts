@@ -2,7 +2,7 @@ from collections import deque
 
 from pyvis.network import Network
 
-K = 3
+K = 6
 class Edge:
     def __init__(self, task, parent, child):
         self.task = task
@@ -90,8 +90,27 @@ def check_solution(solution):
     return B_lvl >= B_start, B_lvl
 
 
-def visualize_tree(root, max_nodes=300):
+def visualize_tree(root, max_nodes=1000):
     net = Network(height='800px', width='100%', directed=True)
+
+    # Enable hierarchical layout
+    net.set_options("""
+    {
+      "layout": {
+        "hierarchical": {
+          "enabled": true,
+          "direction": "UD",
+          "sortMethod": "directed",
+          "levelSeparation": 200,
+          "nodeSpacing": 160
+        }
+      },
+      "physics": {
+        "enabled": false
+      }
+    }
+    """)
+
     queue = deque([root])
     visited = set()
     count = 0
@@ -99,31 +118,37 @@ def visualize_tree(root, max_nodes=300):
     while queue and count < max_nodes:
         current = queue.popleft()
         node_id = str(id(current))
+
         if node_id in visited:
             continue
         visited.add(node_id)
         count += 1
 
-        # Node label
         label = f"T{current.timeslot}\nB{current.battery_level}"
-        node_color = "#0000ff" if len(current.children) == 0 else "#a6cee3"
-        net.add_node(node_id, label=label, title=label, color=node_color)
+
+        net.add_node(
+            node_id,
+            label=label,
+            title=label,
+            color="#a6cee3",
+            level=current.timeslot   # <-- THIS creates tiers
+        )
 
         for edge in current.children:
             child = edge.child
             if not child:
                 continue
+
             child_id = str(id(child))
-            label_text = f"Task {edge.task['id']}\nQ={edge.task['quality']}"
-            color = "#1f78b4"
+            label_text = f"τ {edge.task['id']}\nQ={edge.task['quality']}"
 
             if child_id not in visited:
-                child_color = "#0000ff" if len(child.children) == 0 else "#b2df8a"
                 net.add_node(
                     child_id,
                     label=f"T{child.timeslot}\nB{child.battery_level}",
                     title=f"Battery={child.battery_level}, Timeslot={child.timeslot}",
-                    color=child_color
+                    color="#b2df8a",
+                    level=child.timeslot   # <-- child tier
                 )
                 queue.append(child)
 
@@ -131,43 +156,24 @@ def visualize_tree(root, max_nodes=300):
                 node_id,
                 child_id,
                 label=label_text,
-                color=color,
-                title=f"Quality={edge.task['quality']}",
-                length=300
+                color="#1f78b4",
+                title=f"Quality={edge.task['quality']}"
             )
 
-    # Hierarchical layout: root at top, leaves at bottom
-    net.set_options("""
-    {
-      "layout": {
-        "hierarchical": {
-          "enabled": true,
-          "direction": "UD",
-          "sortMethod": "directed"
-        }
-      },
-      "physics": {
-        "enabled": false
-      },
-      "interaction": {
-        "dragNodes": true
-      }
-    }
-    """)
-
-    net.write_html("tree_with_quality.html")
-    print("✅ Tree visualization saved as tree_with_quality.html — open it in your browser.")
+    net.write_html("entire_tree.html")
 
 
 
-Tasks = [{'id': 1, 'cost': 3, 'quality': 5},
-         {'id': 2, 'cost': 2, 'quality': 3},
-         {'id': 5, 'cost': 1, 'quality': 1}]
-B_start = 4
-B_max = 6
-B_min = 2
+Tasks = [{'id': 1, 'cost': 4, 'quality': 6},
+     {'id': 2, 'cost': 3, 'quality': 5},
+     {'id': 3, 'cost': 2, 'quality': 3},
+     {'id': 4, 'cost': 1, 'quality': 1}]
+K = 6         # timeslots
+B_start = 40
+B_max = 50
+B_min = 30
 
-E = [3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4]
+E = [2,0,0,2,4,6]
 E_2 = [1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0]
 
 

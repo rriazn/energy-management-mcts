@@ -277,10 +277,33 @@ E_50 = [3, 3,
 E_b = [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 16, 24, 30, 33, 32, 29, 23, 14]
 
 Tasks2 = [{'id': 1, 'cost': 4, 'quality': 6},
-     {'id': 2, 'cost': 3, 'quality': 4},
+     {'id': 2, 'cost': 3, 'quality': 5},
      {'id': 3, 'cost': 5, 'quality': 7},
      {'id': 4, 'cost': 8, 'quality': 10},
-     {'id': 5, 'cost': 2, 'quality': 2},
+     {'id': 5, 'cost': 2, 'quality': 3},
      {'id': 6, 'cost': 1, 'quality': 1}]
+
+T = [
+    {'id': 2, 'cost': 2,  'quality': 3},   # low-power sensing / sync
+    {'id': 3, 'cost': 4,  'quality': 6},   # moderate task (fits early hours)
+    {'id': 4, 'cost': 6,  'quality': 9},   # mid-day processing
+    {'id': 5, 'cost': 9,  'quality': 13},  # heavy task (needs solar ramp-up)
+    {'id': 6, 'cost': 12, 'quality': 18},  # peak-hour workload
+    {'id': 1, 'cost': 1,  'quality': 1},   # trivial background task
+    {'id': 7, 'cost': 15, 'quality': 22} # maximum-value task (solar peak)
+]
+
+real_tasks = [{'id': 1, 'cost': 6, 'quality': 4},
+        {'id': 2, 'cost': 11, 'quality': 6},
+        {'id': 3, 'cost': 27, 'quality': 10},
+         {'id': 4, 'cost': 2, 'quality': 2},
+         {'id': 5, 'cost': 53, 'quality': 14}]
+
+t2 = [{'id': 1, 'cost': 6, 'quality': 4},
+        {'id': 2, 'cost': 11, 'quality': 6},
+        {'id': 3, 'cost': 27, 'quality': 10},
+         {'id': 4, 'cost': 2, 'quality': 2},
+         {'id': 5, 'cost': 53, 'quality': 14},
+         {'id': 6, 'cost': 1, 'quality': 1}]
 '''
 '''
