@@ -1,15 +1,9 @@
 import math
-from collections import deque
-
 import numpy as np
+from collections import deque
 from pyvis.network import Network
 
-#E = [40, 38, 49, 32, 6, 4, 0 ,0 ,0 , 0,0 ,0]
 
-#E = [0, 0, 0, 0, 0, 0, 7, 16, 29, 28, 25, 68, 80, 75, 97, 63, 12, 9, 1, 0, 0, 0, 0, 0]
-
-#E = [64, 60, 78, 51, 9, 7, 0, 0, 0, 0, 0, 0]
-#E = [40, 38, 49, 32, 6, 4, 0, 0, 0, 0, 0, 0]
 E = [3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 5, 8, 9, 10, 10, 9, 8, 6]
 thresholds = None
 
@@ -58,7 +52,6 @@ def calculate_thresholds():
     drought_end = max((i for i in range(K - 1) if E[i] == 0 and E[i + 1] > 0), default=K-1)
 
     max_val = max(E)
-    peak_idx = next((i for i in range(len(E)) if E[i] == max_val))
 
     thresholds = np.zeros(K)
 
@@ -108,6 +101,7 @@ def expand(node: Node):
         battery_lvl = min(B_max, node.battery_level + E[node.timeslot] - t["cost"])
         if battery_lvl >= B_min:
             if nodes[node.timeslot][battery_lvl - B_min] is not None:
+                # Node exists already -> add edge only
                 edge = Edge(t, node, nodes[node.timeslot][battery_lvl - B_min])
                 nodes[node.timeslot][battery_lvl - B_min].parents.append(edge)
                 node.children.append(edge)
@@ -115,6 +109,7 @@ def expand(node: Node):
                     nodes[node.timeslot][battery_lvl - B_min].best_quality = node.best_quality + t["quality"]
                     nodes[node.timeslot][battery_lvl - B_min].best_parent = edge
             else:
+                # Node doesnt exist -> add new node and edge
                 edge = Edge(t, node, None)
                 nodes[node.timeslot][battery_lvl - B_min] = Node(battery_lvl, node.timeslot + 1, edge, node.best_quality +
                                                                  t["quality"])
@@ -124,12 +119,12 @@ def expand(node: Node):
 
 def evaluate(node):
     best_children = []
-
     for edge in node.children:
         edge_val = penalize(edge)
         if len(best_children) < beam_width:
             best_children.append((edge, edge_val))
         else:
+            # remove worst from best_children if current edge is better
             minimum = min(best_children, key=lambda tpl: tpl[1])
             if minimum[1] < edge_val:
                 best_children.remove(minimum)
@@ -139,26 +134,26 @@ def evaluate(node):
 
 def beam_search(root):
     global nodes, thresholds
+    # reset
     nodes = np.full((K, B_max + 1 - B_min), None, dtype=object)
+
     thresholds = calculate_thresholds()
-    last_timeslot_nodes = [root]
-    assert beam_width <= len(Tasks)
+    last_timeslot_nodes = [root] # start at root
+    # assert beam_width <= len(Tasks) # sanity check
     for i in range(K):
-        this_timeslot_nodes = []
+        this_timeslot_nodes = [] # nodes chosen in previous iteration
         for curr_node in last_timeslot_nodes:
             expand(curr_node)
             best_children = evaluate(curr_node)
-            #print([b.best_parent.task["id"] for b in best_children])
             for child in best_children:
                 if child not in this_timeslot_nodes:
-                    this_timeslot_nodes.append(child)
+                    this_timeslot_nodes.append(child) # memorize chosen nodes
         last_timeslot_nodes = this_timeslot_nodes
     return last_timeslot_nodes, root
 
-from collections import deque
-from pyvis.network import Network
 
 def visualize_tree(root, max_nodes=1000):
+    """make a visual, tree-like graphic of the created graph"""
     net = Network(height='800px', width='100%', directed=True)
 
     # Enable hierarchical layout
@@ -199,7 +194,7 @@ def visualize_tree(root, max_nodes=1000):
             label=label,
             title=label,
             color="#a6cee3",
-            level=current.timeslot   # <-- THIS creates tiers
+            level=current.timeslot
         )
 
         for edge in current.children:
@@ -216,7 +211,7 @@ def visualize_tree(root, max_nodes=1000):
                     label=f"T{child.timeslot}\nB{child.battery_level}",
                     title=f"Battery={child.battery_level}, Timeslot={child.timeslot}",
                     color="#b2df8a",
-                    level=child.timeslot   # <-- child tier
+                    level=child.timeslot
                 )
                 queue.append(child)
 
@@ -230,7 +225,8 @@ def visualize_tree(root, max_nodes=1000):
 
     net.write_html("beam_search_tree.html")
 
-
+# example usage:
+'''
 ltn, rt = beam_search(Node(B_start, 0, None, 0))
 visualize_tree(rt)
 for node in ltn:
@@ -256,3 +252,4 @@ for k in range(K):
 
 
 print(calculate_thresholds())
+'''

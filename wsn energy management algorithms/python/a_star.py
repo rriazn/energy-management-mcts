@@ -102,7 +102,9 @@ def a_star(start_node):
 
     return None  # No solution found
 
+# example usage:
+'''
 print(a_star(Node(B_start, 0, None, 0)))
-
+'''
 
 

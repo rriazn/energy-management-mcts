@@ -69,8 +69,8 @@ class Node:
 
     def get_best_move(self, c=math.sqrt(2)):
         # UCT, but without exploration parameter, if all children have win_quality 0 choose the cheapest
-        #if all(edge.child.win_quality == 0 for edge in self.children):
-            #return min(self.children, key=lambda e: e.task["cost"])
+        if all(edge.child.win_quality == 0 for edge in self.children):
+            return min(self.children, key=lambda e: e.task["cost"])
         return max(self.children, key=lambda edge: (edge.child.win_quality / edge.child.visits)
                    + c * math.sqrt(math.log(self.visits) / edge.child.visits))
 
@@ -93,7 +93,7 @@ class Node:
             available_tasks = list(filter(lambda t: sim_state_battery + E[sim_timeslot] -
                                                     t["cost"] >= B_min, Tasks))
 
-            # leaf node without full path -> return 0
+            # leaf node without full path -> return 0 (energy below B_min)
             if not available_tasks:
                 return 0, [], 0, 0
             chosen_task = random.choice(available_tasks)
@@ -239,7 +239,6 @@ def mcts(root, iterations):
             backpropagate(summed_up_result, path, len(result))
         else:
             # leaf node selected
-
             backpropagation_value, sim_path, sim_quality, sim_battery = node.simulate(path_quality)
 
             # update best path, if selection and simulation path together are better
@@ -286,6 +285,7 @@ def eliminate_dominated_tasks():
     Tasks = sorted(pruned, key=lambda t: t["cost"], reverse=True)
 
 def visualize_tree(root, max_nodes=1000):
+    """give tree-like representation of graph in html"""
     net = Network(height='800px', width='100%', directed=True)
 
     # Enable hierarchical layout
@@ -358,7 +358,7 @@ def visualize_tree(root, max_nodes=1000):
     net.write_html("mcts_tree.html")
 
 
-# energy harvesting predicitons in 10mAh for 01. June 2026 in Greenwich, UK (Clearsky)
+# energy harvesting predicitons in 10mAh for 01. April 2026 in Greenwich, UK (Clearsky), pyvis
 # for the setup specified in energy_harvesting_prediction.py
 E = [3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 5, 8, 9, 10, 10, 9, 8, 6]
 

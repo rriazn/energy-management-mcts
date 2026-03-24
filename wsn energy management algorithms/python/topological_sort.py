@@ -41,6 +41,7 @@ class Node:
             else list(filter(lambda t: self.battery_level + E[self.timeslot] - t["cost"] >= B_min, Tasks))
 
     def dfs_topo(self):
+        # build graph recursively with dfs logic and provide topological order of it
         nodes[self.timeslot, self.battery_level - B_min] = self
         for i in self.possible_tasks:
             battery_lvl = min(B_max, self.battery_level + E[self.timeslot] - i["cost"])
@@ -57,16 +58,21 @@ class Node:
 
 
 def find_best_path_topological(root):
+    # start topological ordering at root
     root.dfs_topo()
     global top_ordering
+
+    # reverse ordering, because recursive function does append() at the end
     top_ordering = reversed(top_ordering)
     leaves = []
     for node in top_ordering:
+        # true leaf node -> not due to energy below B_min
         if node.timeslot == K and node.battery_level >= B_start:
             leaves.append(node)
             continue
         for edge in node.children:
             v = edge.child
+            # check if current node gives better path to child than found before
             if v.best_quality < node.best_quality + edge.task["quality"]:
                 v.best_quality = node.best_quality + edge.task["quality"]
                 v.best_parent = edge
@@ -74,14 +80,17 @@ def find_best_path_topological(root):
 
 
 def reconstruct_path(leaf):
+    # reconstruct path by following best_parent references from leaf to root
     path = []
     node = leaf
     for i in range(K):
         path.append(node.best_parent.task["id"])
         node = node.best_parent.parent
-    return path, leaf.battery_level, leaf.best_quality
+    return list(reversed(path)), leaf.battery_level, leaf.best_quality
 
+# example usage
+'''
 leaf = find_best_path_topological(Node(B_start, 0, None, 0))
 solution = reconstruct_path(leaf)
 print(solution)
-
+'''

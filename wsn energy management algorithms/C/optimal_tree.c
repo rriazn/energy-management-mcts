@@ -1,249 +1,240 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include "uthash.h"
+#include <stdbool.h>
+#include <math.h>
+#include <stdint.h>
 
-#define K 24
-#define B_START 20
-#define B_MAX 30
-#define B_MIN 10
+#define K       40
+#define B_MAX   90
+#define B_MIN   10
+#define B_START 50
+#define B_RANGE (B_MAX - B_MIN + 1)
 
+#define TASK_COUNT 6
 
-typedef struct task {
-    int id;
-    int cost;
-    int quality;
-} task_t;
+// Maximum number of nodes we expect to allocate
+#define MAX_NODES (K * B_RANGE)
 
-typedef struct edge {
-    int task;
-    struct node *parent;
-    struct node *child;
-} edge_t;
+// Energy per timeslot
+static const int E[] = {4, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 4, 5, 6, 8, 9, 9, 10, 10, 10, 9, 8, 7, 6, 5};
 
-typedef struct node {
-    int battery_level;
-    int timeslot;
-    struct edge_list *parents;
-    struct edge_list *children;
-} node_t;
+typedef struct {
+    int8_t id;
+    int8_t cost;
+    int8_t quality;
+} Task;
 
-typedef struct edge_list {
-    edge_t **list;
-    int size;
-} edge_list_t;
-
-static const task_t tasks[] = {
-    {.id = 1, .cost = 3, .quality = 5},
-    {.id = 2, .cost = 2, .quality = 3},
-    {.id = 3, .cost = 4, .quality = 6},
-    {.id = 4, .cost = 8, .quality = 10},
-    {.id = 5, .cost = 1, .quality = 1}
+static const Task Tasks[TASK_COUNT] = {
+    {1, 4, 6},
+    {2, 3, 5},
+    {3, 5, 7},
+    {4, 8, 10},
+    {5, 2, 3},
+    {6, 1, 1}
 };
 
-static const int num_tasks = sizeof(tasks) / sizeof(task_t);
+typedef struct Edge_t {
+    int8_t task_id;
+    int8_t task_quality;
+    struct Node_t *child;
+} Edge;
 
-static const int E [] = {3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4};
+typedef struct Node_t {
+    int8_t  battery;
+    int8_t  timeslot;
+    int16_t best_quality;
+    int8_t  parent_battery;
+    int8_t  parent_task;
 
-static void die(char *msg) {
-    perror(msg);
-    exit(EXIT_FAILURE);
+    Edge edges[TASK_COUNT];
+    int8_t num_edges;
+} Node;
+
+static Node node_pool[MAX_NODES];
+static uint16_t node_pool_index = 0;
+static uint16_t allocated_nodes = 0;
+static Node* nodes[K + 1][B_RANGE];
+
+// Topological order
+static Node* topo_order[MAX_NODES];
+static uint16_t topo_count = 0;
+
+static Node* allocate_node(void) {
+    if (node_pool_index >= MAX_NODES) {
+        return NULL;
+    }
+    allocated_nodes++;
+    return &node_pool[node_pool_index++];
 }
 
-static void append_edge(edge_list_t **list, edge_t *element) {
-    if(*list == NULL) {
-        *list = (edge_list_t *) malloc(sizeof(edge_list_t));
-        if(NULL == *list) {
-            die("malloc");
+static void reset_node_pool(void) {
+    node_pool_index = 0;
+    allocated_nodes = 0;
+    topo_count = 0;
+}
+
+// Add visited tracking
+static bool visited[K + 1][B_RANGE];
+
+static void dfs_topo(Node *node) {
+    if (node == NULL) return;
+
+    int t = node->timeslot;
+    int b_idx = node->battery - B_MIN;
+
+    // Already visited - skip
+    if (visited[t][b_idx]) return;
+    visited[t][b_idx] = true;
+
+    // Process children first (post-order)
+    for (int i = 0; i < node->num_edges; i++) {
+        if (node->edges[i].child != NULL) {
+            dfs_topo(node->edges[i].child);
         }
-        (*list)->list = (edge_t **) malloc(sizeof(edge_t *));
-        if(NULL == (*list)->list) {
-            die("malloc");
-        }
-        (*list)->list[0] = element;
-        (*list)->size = 1;
-    } else {
-        edge_t **new_list = (edge_t **) realloc((*list)->list, ((*list)->size + 1) * sizeof(edge_t *));
-        if(NULL == new_list) {
-            die("realloc");
-        }
-        (*list)->list = new_list;
-        (*list)->list[(*list)->size] = element;
-        (*list)->size++;
     }
+
+    // Add to topological order
+    topo_order[topo_count++] = node;
 }
 
-static void get_possible_tasks(node_t *node, int possible_tasks[num_tasks]) {
-    for(int i = 0; i < num_tasks; i++) {
-        if(node->battery_level + E[node->timeslot] - tasks[i].cost >= B_MIN) {
-            possible_tasks[i] = 1;
+void generate_graph_and_topological_sort(void) {
+    // Clear arrays
+    for (int t = 0; t <= K; t++) {
+        for (int b = 0; b < B_RANGE; b++) {
+            nodes[t][b] = NULL;
+            visited[t][b] = false;
         }
     }
-}
 
-static node_t *create_node(int battery_level, int timeslot, edge_t *parent) {
-    node_t *node = (node_t *) malloc(sizeof(node_t));
-    if(NULL == node) {
-        die("malloc");
+    reset_node_pool();
+
+    // Create root node
+    Node *root = allocate_node();
+    if (!root) {
+        return;
     }
-    node->battery_level = battery_level;
-    node->timeslot = timeslot;
-    node->children = NULL;
-    node->parents = NULL;
-    if(NULL != parent) {
-        append_edge(&node->parents, parent);
-    }
-    return node;
-}
+    root->battery = B_START;
+    root->timeslot = 0;
+    root->best_quality = -32768;  // Initialize to -infinity
+    root->parent_battery = -1;
+    root->parent_task = -1;
+    root->num_edges = 0;
+    nodes[0][B_START - B_MIN] = root;
 
-static edge_t *create_edge(int task, node_t *parent, node_t *child) {
-    edge_t *edge = (edge_t *) malloc(sizeof(edge_t));
-    if(NULL == edge) {
-        die("malloc");
-    }
-    edge->task = task;
-    edge->parent = parent;
-    edge->child = child;
-    return edge;
-}
+    // Build graph layer by layer
+    for (int t = 0; t < K; t++) {
+        for (int b = 0; b < B_RANGE; b++) {
+            Node *parent = nodes[t][b];
+            if (parent == NULL) continue;
 
-static node_t *generate_tree() {
-    node_t *root = create_node(B_START, 0, NULL);
-    node_t *last_timeslot [B_MAX - B_MIN + 1] = { NULL };
-    last_timeslot[root->battery_level - B_MIN] = root;
+            // Try each task
+            for (int ti = 0; ti < TASK_COUNT; ti++) {
+                const Task *task = &Tasks[ti];
 
-    for(int i = 0; i < K; i++) {
-        node_t *battery_level_nodes [B_MAX - B_MIN + 1] = { NULL };
-        for(int j = 0; j < sizeof(battery_level_nodes) / sizeof(node_t*); j++) {
-            if(NULL != last_timeslot[j]) {
-                node_t *curr_node = last_timeslot[j];
-                int possible_tasks[num_tasks];
-                memset(possible_tasks, 0, sizeof(possible_tasks));
-                get_possible_tasks(curr_node, possible_tasks); 
-                for(int t = 0; t < num_tasks; t++) {
-                    if(1 == possible_tasks[t]) {
-                        int battery_level = curr_node->battery_level + E[curr_node->timeslot] - tasks[t].cost;
-                        if(battery_level > B_MAX) {
-                            battery_level = B_MAX;
-                        }
-                        edge_t *edge = NULL;
-                        battery_level -= B_MIN;
+                int8_t new_batt = parent->battery + E[t] - task->cost;
+                if (new_batt < B_MIN || new_batt > B_MAX) continue;
 
-                        // Node already exists, add edge
-                        if(NULL != battery_level_nodes[battery_level]) {
-                            edge = create_edge(t, curr_node, battery_level_nodes[battery_level]);
-                            append_edge(&(battery_level_nodes[battery_level]->parents), edge);
-                        } else {
-                            edge = create_edge(t, curr_node, NULL);
-                            battery_level_nodes[battery_level] = create_node(battery_level + B_MIN, curr_node->timeslot + 1, edge);
-                            edge->child = battery_level_nodes[battery_level];
-                        }
-                        append_edge(&(curr_node->children), edge);
+                int8_t child_idx = new_batt - B_MIN;
+                Node *child = nodes[t + 1][child_idx];
+
+                // Create child if doesn't exist
+                if (child == NULL) {
+                    child = allocate_node();
+                    if (!child) {
+                        return;
                     }
-                    
+                    child->battery = new_batt;
+                    child->timeslot = t + 1;
+                    child->best_quality = -32768;  // -infinity
+                    child->parent_battery = -1;
+                    child->parent_task = -1;
+                    child->num_edges = 0;
+                    nodes[t + 1][child_idx] = child;
+                }
+
+                // Add edge from parent to child
+                if (parent->num_edges < TASK_COUNT) {
+                    parent->edges[parent->num_edges].task_id = task->id;
+                    parent->edges[parent->num_edges].task_quality = task->quality;
+                    parent->edges[parent->num_edges].child = child;
+                    parent->num_edges++;
                 }
             }
         }
-        memcpy(last_timeslot, battery_level_nodes, sizeof(last_timeslot));
     }
-    return root;
+
+    // Perform DFS from root to get topological order
+    dfs_topo(root);
 }
 
-// Hash map necessities
-
-typedef struct result {
-    int quality;
-    int task_path[K];
-} result_t;
-
-typedef struct visited {
-    node_t *key;
-    result_t *value;
-    UT_hash_handle hh;
-} visited_t;
-
-static visited_t *visited = NULL;
-
-static result_t *visit_node(node_t *node, int quality, int task_path[K]) {
-    visited_t *entry;
-    HASH_FIND_PTR(visited, &node, entry);
-    if(NULL == entry) {
-        entry = (visited_t *) malloc(sizeof(visited_t));
-        if(NULL == entry) {
-            die("malloc");
-        }
-        entry->key = node;
-        entry->value = (result_t *) malloc(sizeof(result_t));
-        if(NULL == entry->value) {
-            die("malloc");
-        }
-        entry->value->quality = quality;
-        memcpy(entry->value->task_path, task_path, sizeof(entry->value->task_path));
-        HASH_ADD_PTR(visited, key, entry);
-    } else {
-        if(entry->value->quality < quality) {
-            entry->value->quality = quality;
-            memcpy(entry->value->task_path, task_path, sizeof(entry->value->task_path));
-        }
-    }
-    return entry->value;
-}
-
-int get_visited(node_t *node, result_t **out) {
-    visited_t *entry;
-    HASH_FIND_PTR(visited, &node, entry);
-    if(NULL != entry) {
-        *out = entry->value;
-        return 1;
-    }
-    return 0;
-}
-
-result_t *find_best_path(node_t *root) {
-    result_t *res;
-    if(get_visited(root, &res)) {
-        return res;
+static void find_best_path_topological(void) {
+    if (topo_count == 0) {
+        return;
     }
 
-    int best_task_id = 0;
-    int best_quality = -1;
+    // Initialize: root has quality 0
+    Node *root = topo_order[topo_count - 1];  // Last in topo order = source
+    root->best_quality = 0;
 
-    // leaf
-    if(NULL == root->children) {
-        int task_path[K] = { 0 };
-        if(root->timeslot != K || root->battery_level < B_START) {
-            visit_node(root, -1, task_path);
-        } else {
-            visit_node(root, 0, task_path);
-        }
-        get_visited(root, &res);
-        return res;
-    }
-    int best_path [K] = { 0 };
-    // middle node
-    for(int i = 0; i < root->children->size; i++) {
-        result_t *child_res = find_best_path(root->children->list[i]->child);
-        int qual = child_res->quality;
-        if(qual != -1) {
-            qual += tasks[root->children->list[i]->task].quality;
-            if(qual > best_quality) {
-                best_quality = qual;
-                best_task_id = tasks[root->children->list[i]->task].id;
-                memcpy(best_path, child_res->task_path, sizeof(best_path));
+    // Process nodes in reverse topological order (root to leaves)
+    for (int i = topo_count - 1; i >= 0; i--) {
+        Node *u = topo_order[i];
+
+        // Skip if unreachable
+        if (u->best_quality == -32768) continue;
+
+        // Relax all outgoing edges
+        for (int j = 0; j < u->num_edges; j++) {
+            Edge *e = &u->edges[j];
+            Node *v = e->child;
+
+            if (v == NULL) continue;
+
+            int16_t new_quality = u->best_quality + e->task_quality;
+
+            if (new_quality > v->best_quality) {
+                v->best_quality = new_quality;
+                v->parent_battery = u->battery;
+                v->parent_task = e->task_id;
             }
         }
     }
-    best_path[root->timeslot] = best_task_id;
 
-    return visit_node(root, best_quality, best_path);
+    // Find best leaf node (timeslot = K, battery >= B_START)
+    int8_t best_batt = -1;
+    int16_t best_q = -32768;
+
+    for (int b = 0; b < B_RANGE; b++) {
+        Node *n = nodes[K][b];
+        if (n != NULL && n->best_quality > best_q && (b + B_MIN) >= B_START) {
+            best_q = n->best_quality;
+            best_batt = b + B_MIN;
+        }
+    }
+
+    if (best_batt < 0) {
+        return;
+    }
+
+    // Reconstruct path
+    int8_t tasks_seq[K];
+    int idx = 0;
+    int8_t batt = best_batt;
+    int t = K;
+
+    while (t > 0) {
+        Node *n = nodes[t][batt - B_MIN];
+        if (n == NULL || n->parent_task <= 0) break;
+
+        tasks_seq[idx++] = n->parent_task;
+        batt = n->parent_battery;
+        t--;
+    }
 }
 
+
 int main(int argc, char **argv) {
-    node_t *root = generate_tree();
-    result_t *res = find_best_path(root);
-    printf("%d\n", res->quality);
-    for(int i = 0; i < K; i++) {
-        printf("%d\n", res->task_path[i]);
-    }
-    return 0;
+    generate_graph_and_topological_sort();
+    find_best_path_topological();
 }

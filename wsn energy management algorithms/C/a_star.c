@@ -48,6 +48,8 @@ static int best_parent[K][B_MAX - B_MIN + 1];
 static state_t open_list[MAX_OPEN_SIZE];
 static int open_size = 0;
 
+
+// functions for priority queue: push/pop/check if empty
 static void pq_push(state_t state) {    
     if (open_size == MAX_OPEN_SIZE - 1) {
         fflush(stdout);
@@ -96,6 +98,7 @@ static int calc_quality_at_end(int timeslot) {
     return remaining_slots * max_quality;
 }
 
+// reconstruct path via saved tasks
 static int reconstruct_path(int battery_level, int path[K]) {
     int quality = 0;
     for(int i = K - 1; i >= 0; i--) {

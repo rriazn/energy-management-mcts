@@ -9,7 +9,7 @@
 #define B_RANGE (B_MAX - B_MIN + 1)
 
 #define TASK_COUNT 6
-#define BEAM_WIDTH (TASK_COUNT / 3)   // same as Python: len(Tasks)/3 = 2
+#define BEAM_WIDTH (TASK_COUNT / 3)
 
 // Energy per timeslot
 static const int8_t E[K] = {
@@ -142,7 +142,7 @@ void beam_search(void) {
                     cand_val[cand_count]  = edge_val;
                     cand_count++;
                 } else {
-                    // find worst candidate
+                    // find worst candidate, remove if its worse than current edge
                     uint8_t worst = 0;
                     for (uint8_t k = 1; k < cand_count; k++) {
                         if (cand_val[k] < cand_val[worst]) worst = k;
