@@ -4,7 +4,7 @@ from collections import deque
 from pyvis.network import Network
 
 
-E = [3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 5, 8, 9, 10, 10, 9, 8, 6]
+E = [1, 3, 5, 8, 9, 10, 10, 9, 8, 6, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 thresholds = None
 
 K = 24         # timeslots
@@ -44,15 +44,12 @@ class Node:
 
 
 def calculate_thresholds():
-    K = len(E)
+    # Note: this function assumes one drought per time span
 
     # find drought region
     drought_start = next((i for i in range(1, K) if E[i] == 0 and E[i-1] > 0), 0)
 
     drought_end = max((i for i in range(K - 1) if E[i] == 0 and E[i + 1] > 0), default=K-1)
-
-    max_val = max(E)
-
     thresholds = np.zeros(K)
 
     peak = B_max   # how high we hoard before the drought
@@ -71,14 +68,13 @@ def calculate_thresholds():
             thresholds[k] = B_start + (peak - B_start) * (k / drought_start)
 
         # Falling phase (drought)
-        drought_len = drought_end - drought_start + 1
+        drought_len = drought_end - drought_start
         for i, k in enumerate(range(drought_start, drought_end + 1)):
             thresholds[k] = peak - (peak - B_start) * (i / drought_len)
 
         # After drought stay the same
         for k in range(drought_end + 1, K):
             thresholds[k] = B_start
-
     return thresholds.tolist()
 
 
@@ -249,7 +245,4 @@ for k in range(K):
     battery = min(B_max, battery - task["cost"] + E[k])
     print(task["quality"], quality, E[k], task["cost"], battery)
     #print(task["cost"], task["quality"])
-
-
-print(calculate_thresholds())
 '''
