@@ -1,7 +1,0 @@
-sensor needs ~1s for initialization
-one measurement takes ~50 microseconds
-
--> one cycle for measurement is assumed 1s
-
-energy used during active sensor: 105mA
-energy used while idle for nrf52840: 1mA

@@ -11,7 +11,7 @@
 #define B_MIN 10
 #define C 1.41
 
-#define ITERATIONS 500
+#define ITERATIONS 10
 
 static const int E [] = {3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 6, 6, 6, 5, 5, 4};
 

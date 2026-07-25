@@ -4,9 +4,9 @@
 venv/
 .idea/
 lib/
-.vscode/
 *.exe
 *.html
 exes/
 *.dot
 __pycache__/
+docs/
