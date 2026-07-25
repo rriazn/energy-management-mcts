@@ -15,16 +15,11 @@
     - optimal_tree.py (DFS + Search)
     - tree_with_bins.py (graph model exploration)
 
-### docs
-
-- Results
-- Approaches
-
 ### C Code
 
 - C Codes for developed and compared algorithms
 
-### wsn energy management algorithms
+### WSN energy management algorithms
 
 - python
     - python code for developed algorithms
